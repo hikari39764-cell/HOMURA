@@ -3,8 +3,10 @@
 #include "WinApp.h"
 #include "Logger.h"
 #include "DXCommon.h"
+#include "CrashHandler.h"
 
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int showCmd) {
+	InitializeCrashHandler();
 	InitializeLogger();
 
 	WinApp winApp;
@@ -12,6 +14,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int showCmd) {
 		FinalizeLogger();
 		return -1;
 	}
+
 
 	DXCommon dxCommon;
 	if (!dxCommon.Initialize()) {
