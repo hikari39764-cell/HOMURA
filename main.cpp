@@ -1,10 +1,21 @@
 #include <Windows.h>
+#include "WinApp.h"
 
-// Windowsアプリでのエントリーポイント(main関数)
-int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
+int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int showCmd) {
 
-    // 出力ウィンドウへの文字出力
-    OutputDebugStringA("Hello,DirectX\n");
+	WinApp winApp;
+	if (!winApp.Initialize(showCmd)) {
+		return -1;
+	}
 
-    return 0;
+	while (true) {
+		if (winApp.ProcessMessage()) {
+			break;
+		}
+
+	}
+
+	winApp.Finalize();
+
+	return 0;
 }
