@@ -1,29 +1,32 @@
 #include <Windows.h>
+
 #include "WinApp.h"
 #include "Logger.h"
+#include "DXCommon.h"
 
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int showCmd) {
 	InitializeLogger();
-	Log("Program Start");
 
 	WinApp winApp;
 	if (!winApp.Initialize(showCmd)) {
-		Log("WinApp Initialize Failed");
 		FinalizeLogger();
 		return -1;
 	}
 
-	Log("WinApp Initialize Success");
+	DXCommon dxCommon;
+	if (!dxCommon.Initialize()) {
+		winApp.Finalize();
+		FinalizeLogger();
+		return -1;
+	}
 
 	while (true) {
 		if (winApp.ProcessMessage()) {
 			break;
 		}
-
 	}
 
-	Log("Program End");
-
+	dxCommon.Finalize();
 	winApp.Finalize();
 	FinalizeLogger();
 

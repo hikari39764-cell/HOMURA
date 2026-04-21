@@ -90,11 +90,13 @@
     <None Include=".editorconfig" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="DxCommon.cpp" />
     <ClCompile Include="Logger.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="WinApp.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="DxCommon.h" />
     <ClInclude Include="Logger.h" />
     <ClInclude Include="WinApp.h" />
     <ClInclude Include="WinConfig.h" />

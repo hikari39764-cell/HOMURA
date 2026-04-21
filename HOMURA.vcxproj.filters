@@ -19,6 +19,9 @@
     <Filter Include="Log">
       <UniqueIdentifier>{9201ce86-8cdb-4609-a7ec-8a3af4911e27}</UniqueIdentifier>
     </Filter>
+    <Filter Include="DxCommon">
+      <UniqueIdentifier>{abdec8bd-538f-40a7-9ef6-f846add2f99a}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <None Include=".editorconfig" />
@@ -33,6 +36,9 @@
     <ClCompile Include="Logger.cpp">
       <Filter>Log</Filter>
     </ClCompile>
+    <ClCompile Include="DxCommon.cpp">
+      <Filter>DxCommon</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="WinApp.h">
@@ -43,6 +49,9 @@
     </ClInclude>
     <ClInclude Include="Logger.h">
       <Filter>Log</Filter>
+    </ClInclude>
+    <ClInclude Include="DxCommon.h">
+      <Filter>DxCommon</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>
