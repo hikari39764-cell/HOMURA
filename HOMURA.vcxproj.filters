@@ -16,6 +16,9 @@
     <Filter Include="WinApp">
       <UniqueIdentifier>{acb99a63-2744-4ba2-9951-a2c2082ea478}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Log">
+      <UniqueIdentifier>{9201ce86-8cdb-4609-a7ec-8a3af4911e27}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <None Include=".editorconfig" />
@@ -27,6 +30,9 @@
     <ClCompile Include="WinApp.cpp">
       <Filter>WinApp</Filter>
     </ClCompile>
+    <ClCompile Include="Logger.cpp">
+      <Filter>Log</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="WinApp.h">
@@ -34,6 +40,9 @@
     </ClInclude>
     <ClInclude Include="WinConfig.h">
       <Filter>WinApp</Filter>
+    </ClInclude>
+    <ClInclude Include="Logger.h">
+      <Filter>Log</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>
