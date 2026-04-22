@@ -27,6 +27,7 @@ x86/
 [Aa][Rr][Mm]/
 [Aa][Rr][Mm]64/
 bld/
+Dumps/
 [Bb]in/
 [Oo]bj/
 [Oo]ut/
@@ -97,6 +98,8 @@ StyleCopReport.xml
 *.pidb
 *.svclog
 *.scc
+*.dmp
+
 
 # Chutzpah Test files
 _Chutzpah*
@@ -362,5 +365,3 @@ MigrationBackup/
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
 
-*.dmp
-Dumps/
