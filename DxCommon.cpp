@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <format>
+#include <d3d12sdklayers.h>
 
 #pragma comment(lib, "d3d12.lib")
 #pragma comment(lib, "dxgi.lib")
@@ -9,7 +10,11 @@
 #include "Logger.h"
 #include "WinConfig.h"
 
+
 bool DXCommon::Initialize(HWND hwnd) {
+	// DebugLayerはD3D12Deviceを作る前に有効化
+	EnableDebugLayer();
+
 	// DX12を使うための基本初期化
 	if (!CreateFactory()) {
 		return false;
@@ -59,6 +64,74 @@ bool DXCommon::Initialize(HWND hwnd) {
 	}
 
 	return true;
+}
+
+void DXCommon::EnableDebugLayer() {
+#ifdef _DEBUG
+	// DebugLayerを有効にする
+	ID3D12Debug1* debugController = nullptr;
+
+	HRESULT hr = D3D12GetDebugInterface(IID_PPV_ARGS(&debugController));
+	if (SUCCEEDED(hr)) {
+		// DirectX12のDebugLayerを有効にする
+		debugController->EnableDebugLayer();
+
+		// Debugビルド専用にする
+		debugController->SetEnableGPUBasedValidation(TRUE);
+
+		Log("Enable D3D12 DebugLayer!!!\n");
+
+		debugController->Release();
+		debugController = nullptr;
+	} else {
+		// DebugLayerが使えない環境でも、Releaseビルド同様に起動は続行する
+		Log("Failed to enable D3D12 DebugLayer.\n");
+	}
+#endif
+}
+
+void DXCommon::SetupDebugInfoQueue() {
+#ifdef _DEBUG
+
+	// DeviceからInfoQueueを取得する
+	ID3D12InfoQueue* infoQueue = nullptr;
+
+	HRESULT hr = device_->QueryInterface(IID_PPV_ARGS(&infoQueue));
+	if (SUCCEEDED(hr)) {
+		// 深刻な破損エラーが出たら停止する
+		infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, true);
+
+		// 通常のエラーが出たら停止する
+		infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, true);
+
+		// 警告が出たら停止する
+		infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, true);
+
+		// 抑制するメッセージID
+		D3D12_MESSAGE_ID denyIds[] = {
+			D3D12_MESSAGE_ID_RESOURCE_BARRIER_MISMATCHING_COMMAND_LIST_TYPE
+		};
+
+		// 抑制するメッセージレベル
+		D3D12_MESSAGE_SEVERITY severities[] = {
+			D3D12_MESSAGE_SEVERITY_INFO
+		};
+
+		D3D12_INFO_QUEUE_FILTER filter{};
+		filter.DenyList.NumIDs = static_cast<UINT>(_countof(denyIds));
+		filter.DenyList.pIDList = denyIds;
+		filter.DenyList.NumSeverities = static_cast<UINT>(_countof(severities));
+		filter.DenyList.pSeverityList = severities;
+
+		// 指定したメッセージをInfoQueueに保存しないようにする
+		infoQueue->PushStorageFilter(&filter);
+
+		Log("Setup D3D12 InfoQueue!!!\n");
+
+		infoQueue->Release();
+		infoQueue = nullptr;
+	}
+#endif
 }
 
 void DXCommon::Finalize() {
@@ -257,6 +330,9 @@ bool DXCommon::CreateDevice() {
 	device_ = device;
 
 	Log("Complete create D3D12Device!!!\n");
+
+	SetupDebugInfoQueue();
+
 	return true;
 }
 

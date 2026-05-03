@@ -15,6 +15,9 @@ private:
 	static constexpr UINT kBackBufferCount = 2;
 
 private:
+	void EnableDebugLayer();
+	void SetupDebugInfoQueue();
+
 	bool CreateFactory();
 	bool SelectAdapter();
 	bool CreateDevice();
