@@ -2,7 +2,7 @@
 
 #include "WinApp.h"
 #include "Logger.h"
-#include "DXCommon.h"
+#include "DxCommon.h"
 #include "CrashHandler.h"
 
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int showCmd) {
@@ -15,9 +15,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int showCmd) {
 		return -1;
 	}
 
-
 	DXCommon dxCommon;
-	if (!dxCommon.Initialize()) {
+	if (!dxCommon.Initialize(winApp.GetHwnd())) {
 		winApp.Finalize();
 		FinalizeLogger();
 		return -1;
@@ -27,6 +26,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int showCmd) {
 		if (winApp.ProcessMessage()) {
 			break;
 		}
+
+		// 毎フレームBackBufferを指定色でクリアして画面に表示する
+		dxCommon.Draw();
 	}
 
 	dxCommon.Finalize();
