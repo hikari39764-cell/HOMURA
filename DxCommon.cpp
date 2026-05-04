@@ -144,7 +144,7 @@ void DXCommon::ReportLiveObjects() {
 
 	HRESULT hr = DXGIGetDebugInterface1(0, IID_PPV_ARGS(&debug));
 	if (SUCCEEDED(hr)) {
-		Log("========== DXGI Live Object Report Start ==========\n");
+		Log("========== DXGI Live Object Report Start!!!!!!!!!!!!!!!!!!!!!!!!!! ==========\n");
 
 		// DXGI全体の生存オブジェクトを出力する
 		debug->ReportLiveObjects(DXGI_DEBUG_ALL, DXGI_DEBUG_RLO_ALL);
@@ -155,7 +155,7 @@ void DXCommon::ReportLiveObjects() {
 		// D3D12関連の生存オブジェクトを出力する
 		debug->ReportLiveObjects(DXGI_DEBUG_D3D12, DXGI_DEBUG_RLO_ALL);
 
-		Log("========== DXGI Live Object Report End ==========\n");
+		Log("========== DXGI Live Object Report End !!!!!!!!!!!!!!!!!!!!!==========\n");
 
 		debug->Release();
 		debug = nullptr;
