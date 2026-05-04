@@ -3,9 +3,11 @@
 #include <cassert>
 #include <format>
 #include <d3d12sdklayers.h>
+#include <dxgidebug.h>
 
 #pragma comment(lib, "d3d12.lib")
 #pragma comment(lib, "dxgi.lib")
+#pragma comment(lib, "dxguid.lib")
 
 #include "Logger.h"
 #include "WinConfig.h"
@@ -105,7 +107,7 @@ void DXCommon::SetupDebugInfoQueue() {
 		infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, true);
 
 		// 警告が出たら停止する
-		infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, true);
+		// infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, true);
 
 		// 抑制するメッセージID
 		D3D12_MESSAGE_ID denyIds[] = {
@@ -130,6 +132,35 @@ void DXCommon::SetupDebugInfoQueue() {
 
 		infoQueue->Release();
 		infoQueue = nullptr;
+	}
+#endif
+}
+
+void DXCommon::ReportLiveObjects() {
+#ifdef _DEBUG
+	// DirectX12 / DXGIの解放漏れを確認する
+	// すべてのDirectXオブジェクトをReleaseした後に呼び出すこと
+	IDXGIDebug1* debug = nullptr;
+
+	HRESULT hr = DXGIGetDebugInterface1(0, IID_PPV_ARGS(&debug));
+	if (SUCCEEDED(hr)) {
+		Log("========== DXGI Live Object Report Start ==========\n");
+
+		// DXGI全体の生存オブジェクトを出力する
+		debug->ReportLiveObjects(DXGI_DEBUG_ALL, DXGI_DEBUG_RLO_ALL);
+
+		// アプリケーション側で作成したDXGI関連オブジェクトを出力する
+		debug->ReportLiveObjects(DXGI_DEBUG_APP, DXGI_DEBUG_RLO_ALL);
+
+		// D3D12関連の生存オブジェクトを出力する
+		debug->ReportLiveObjects(DXGI_DEBUG_D3D12, DXGI_DEBUG_RLO_ALL);
+
+		Log("========== DXGI Live Object Report End ==========\n");
+
+		debug->Release();
+		debug = nullptr;
+	} else {
+		Log("Failed to get DXGI Debug Interface.\n");
 	}
 #endif
 }
@@ -196,6 +227,9 @@ void DXCommon::Finalize() {
 		dxgiFactory_->Release();
 		dxgiFactory_ = nullptr;
 	}
+
+	// すべてのDirectX関連オブジェクトを解放した後、解放漏れがないか確認する
+	ReportLiveObjects();
 }
 
 void DXCommon::Draw() {

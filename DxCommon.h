@@ -17,6 +17,7 @@ private:
 private:
 	void EnableDebugLayer();
 	void SetupDebugInfoQueue();
+	void ReportLiveObjects();
 
 	bool CreateFactory();
 	bool SelectAdapter();
