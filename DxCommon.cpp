@@ -500,17 +500,22 @@ bool DXCommon::CreateRTV() {
 }
 
 bool DXCommon::CreateFence() {
-	// GPUの処理完了をCPU側で待つためのFenceを作成する
-	HRESULT hr = device_->CreateFence(fenceValue_, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence_));
+	// GPUの処理完了をCPU側で確認するためのFenceを作成する
+	fenceValue_ = 0;
+
+	HRESULT hr = device_->CreateFence(
+		fenceValue_,
+		D3D12_FENCE_FLAG_NONE,
+		IID_PPV_ARGS(&fence_)
+	);
 	assert(SUCCEEDED(hr));
 
 	if (FAILED(hr)) {
 		return false;
 	}
 
-	++fenceValue_;
-
-	// Fence完了通知用のイベントを作成する
+	// Fenceの完了通知を受け取るためのWindowsイベントを作成する
+	// GPUの処理が終わるまでCPUを待機させるときに使う
 	fenceEvent_ = CreateEvent(nullptr, false, false, nullptr);
 	assert(fenceEvent_ != nullptr);
 
@@ -523,19 +528,23 @@ bool DXCommon::CreateFence() {
 }
 
 void DXCommon::WaitForGpu() {
-	// GPU側のCommandQueueにFenceの値を書き込ませる
-	const UINT64 fenceValue = fenceValue_;
-
-	HRESULT hr = commandQueue_->Signal(fence_, fenceValue);
-	assert(SUCCEEDED(hr));
-
+	// Fence値を1つ進める
 	++fenceValue_;
 
+	const UINT64 waitFenceValue = fenceValue_;
+
+	// CommandQueueにSignalを送る
+	// GPUがここまで実行し終わったら、FenceにwaitFenceValueを書き込む
+	HRESULT hr = commandQueue_->Signal(fence_, waitFenceValue);
+	assert(SUCCEEDED(hr));
+
 	// GPUがまだ指定したFence値まで到達していなければ待機する
-	if (fence_->GetCompletedValue() < fenceValue) {
-		hr = fence_->SetEventOnCompletion(fenceValue, fenceEvent_);
+	if (fence_->GetCompletedValue() < waitFenceValue) {
+		// 指定したFence値に到達したら、fenceEvent_を通知状態にしてもらう
+		hr = fence_->SetEventOnCompletion(waitFenceValue, fenceEvent_);
 		assert(SUCCEEDED(hr));
 
+		// GPUの処理が終わるまでCPU側を待たせる
 		WaitForSingleObject(fenceEvent_, INFINITE);
 	}
 }
