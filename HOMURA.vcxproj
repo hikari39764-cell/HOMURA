@@ -102,12 +102,14 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     <ClCompile Include="DxCommon.cpp" />
     <ClCompile Include="Logger.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="MathUtil.cpp" />
     <ClCompile Include="WinApp.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="CrashHandler.h" />
     <ClInclude Include="DxCommon.h" />
     <ClInclude Include="Logger.h" />
+    <ClInclude Include="MathUtil.h" />
     <ClInclude Include="WinApp.h" />
     <ClInclude Include="WinConfig.h" />
   </ItemGroup>

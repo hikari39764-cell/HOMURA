@@ -8,6 +8,8 @@
 #include <cstddef>
 #include <string>
 
+#include "MathUtil.h"
+
 class DXCommon {
 public:
 	bool Initialize(HWND hwnd);
@@ -16,15 +18,13 @@ public:
 	void Draw();
 
 private:
-	struct Vector4 {
-		float x;
-		float y;
-		float z;
-		float w;
-	};
-
+	
 	struct Material {
 		Vector4 color;
+	};
+
+	struct TransformationMatrix {
+		Matrix4x4 WVP;
 	};
 
 private:
@@ -50,6 +50,7 @@ private:
 	ID3D12Resource* CreateBufferResource(size_t sizeInBytes);
 	bool CreateVertexResource();
 	bool CreateMaterialResource();
+	bool CreateTransformationMatrixResource();
 	void CreateViewportAndScissor();
 
 	IDxcBlob* CompileShader(
@@ -59,6 +60,9 @@ private:
 		IDxcCompiler3* dxcCompiler,
 		IDxcIncludeHandler* includeHandler
 	);
+
+
+	void UpdateTransformationMatrix();
 
 	void WaitForGpu();
 
@@ -89,6 +93,21 @@ private:
 	D3D12_VERTEX_BUFFER_VIEW vertexBufferView_ = {};
 
 	ID3D12Resource* materialResource_ = nullptr;
+
+	ID3D12Resource* transformationMatrixResource_ = nullptr;
+	TransformationMatrix* transformationMatrixData_ = nullptr;
+
+	Transform transform_ = {
+		{ 1.0f, 1.0f, 1.0f },
+		{ 0.0f, 0.0f, 0.0f },
+		{ 0.0f, 0.0f, 0.0f },
+	};
+
+	Transform cameraTransform_ = {
+		{ 1.0f, 1.0f, 1.0f },
+		{ 0.0f, 0.0f, 0.0f },
+		{ 0.0f, 0.0f, -5.0f },
+	};
 
 	D3D12_VIEWPORT viewport_ = {};
 	D3D12_RECT scissorRect_ = {};

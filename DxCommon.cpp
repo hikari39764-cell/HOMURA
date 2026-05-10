@@ -1,6 +1,7 @@
 #include "DxCommon.h"
 
 #include <cassert>
+#include <cmath>
 #include <format>
 #include <d3d12sdklayers.h>
 #include <dxgidebug.h>
@@ -79,6 +80,11 @@ bool DXCommon::Initialize(HWND hwnd) {
 
 	// マテリアル用のResourceを作成する
 	if (!CreateMaterialResource()) {
+		return false;
+	}
+
+	// 座標変換用のResourceを作成する
+	if (!CreateTransformationMatrixResource()) {
 		return false;
 	}
 
@@ -189,6 +195,12 @@ void DXCommon::Finalize() {
 	// GPUがまだResourceを使用している可能性があるので、解放前に待機する
 	if (commandQueue_ != nullptr && fence_ != nullptr) {
 		WaitForGpu();
+	}
+
+	if (transformationMatrixResource_ != nullptr) {
+		transformationMatrixResource_->Release();
+		transformationMatrixResource_ = nullptr;
+		transformationMatrixData_ = nullptr;
 	}
 
 	if (materialResource_ != nullptr) {
@@ -306,6 +318,9 @@ void DXCommon::Draw() {
 	commandList_->RSSetViewports(1, &viewport_);
 	commandList_->RSSetScissorRects(1, &scissorRect_);
 
+	// 座標変換行列を更新する
+	UpdateTransformationMatrix();
+
 	// Shaderと描画設定をまとめたPipelineStateを設定する
 	commandList_->SetGraphicsRootSignature(rootSignature_);
 	commandList_->SetPipelineState(graphicsPipelineState_);
@@ -318,6 +333,9 @@ void DXCommon::Draw() {
 
 	// PixelShaderで使うマテリアルCBufferの場所を設定する
 	commandList_->SetGraphicsRootConstantBufferView(0, materialResource_->GetGPUVirtualAddress());
+
+	// VertexShaderで使う座標変換CBufferの場所を設定する
+	commandList_->SetGraphicsRootConstantBufferView(1, transformationMatrixResource_->GetGPUVirtualAddress());
 
 	// 実際に描画命令を積む
 	commandList_->DrawInstanced(3, 1, 0, 0);
@@ -829,11 +847,18 @@ bool DXCommon::CreateGraphicsPipelineState() {
 	descriptionRootSignature.Flags =
 		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
-	// PixelShaderで使うConstantBufferのBind情報を設定する
-	D3D12_ROOT_PARAMETER rootParameters[1] = {};
+	// RootParameter作成。PixelShaderのMaterialとVertexShaderのTransform
+	D3D12_ROOT_PARAMETER rootParameters[2] = {};
+
+	// PixelShaderで使うMaterial用CBuffer
 	rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
 	rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 	rootParameters[0].Descriptor.ShaderRegister = 0;
+
+	// VertexShaderで使う座標変換用CBuffer
+	rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+	rootParameters[1].Descriptor.ShaderRegister = 0;
 
 	descriptionRootSignature.pParameters = rootParameters;
 	descriptionRootSignature.NumParameters = _countof(rootParameters);
@@ -1090,6 +1115,80 @@ bool DXCommon::CreateMaterialResource() {
 	Log("Complete create MaterialResource!!!\n");
 
 	return true;
+}
+
+bool DXCommon::CreateTransformationMatrixResource() {
+	// 座標変換用のResourceを作成する
+	transformationMatrixResource_ = CreateBufferResource(sizeof(TransformationMatrix));
+	assert(transformationMatrixResource_ != nullptr);
+
+	if (transformationMatrixResource_ == nullptr) {
+		return false;
+	}
+
+	// 座標変換Resourceにデータを書き込む
+	transformationMatrixData_ = nullptr;
+
+	// 書き込み用のアドレスを取得する
+	HRESULT hr = transformationMatrixResource_->Map(
+		0,
+		nullptr,
+		reinterpret_cast<void**>(&transformationMatrixData_)
+	);
+	assert(SUCCEEDED(hr));
+
+	if (FAILED(hr)) {
+		return false;
+	}
+
+	// 最初は単位行列を設定する
+	transformationMatrixData_->WVP = MakeIdentity4x4();
+
+	Log("Complete create TransformationMatrixResource!!!\n");
+
+	return true;
+}
+
+void DXCommon::UpdateTransformationMatrix() {
+	if (transformationMatrixData_ == nullptr) {
+		return;
+	}
+
+	// 今回はY軸回転で三角形を動かす
+	transform_.rotate.y += 0.03f;
+
+	// オブジェクトのWorldMatrixを作成する
+	Matrix4x4 worldMatrix = MakeAffineMatrix(
+		transform_.scale,
+		transform_.rotate,
+		transform_.translate
+	);
+
+	// カメラのViewMatrixを作成する
+	Matrix4x4 cameraMatrix = MakeAffineMatrix(
+		cameraTransform_.scale,
+		cameraTransform_.rotate,
+		cameraTransform_.translate
+	);
+
+	Matrix4x4 viewMatrix = Inverse(cameraMatrix);
+
+	// 透視投影行列を作成する
+	Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(
+		0.45f,
+		float(WinConfig::kClientWidth) / float(WinConfig::kClientHeight),
+		0.1f,
+		100.0f
+	);
+
+	// World、View、Projectionをまとめる
+	Matrix4x4 worldViewProjectionMatrix = Multiply(
+		worldMatrix,
+		Multiply(viewMatrix, projectionMatrix)
+	);
+
+	// VertexShaderへ渡す行列を更新する
+	transformationMatrixData_->WVP = worldViewProjectionMatrix;
 }
 
 void DXCommon::CreateViewportAndScissor() {

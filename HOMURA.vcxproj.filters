@@ -28,6 +28,9 @@
     <Filter Include="Debug\CrashHandler">
       <UniqueIdentifier>{1bb6ec99-fcb5-4c2e-b176-6d09518215a4}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Math">
+      <UniqueIdentifier>{6d5b3818-5fff-4587-b0a7-3a35e9b0cf18}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <None Include=".editorconfig" />
@@ -48,6 +51,9 @@
     <ClCompile Include="CrashHandler.cpp">
       <Filter>Debug\CrashHandler</Filter>
     </ClCompile>
+    <ClCompile Include="MathUtil.cpp">
+      <Filter>Math</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="WinApp.h">
@@ -64,6 +70,9 @@
     </ClInclude>
     <ClInclude Include="CrashHandler.h">
       <Filter>Debug\CrashHandler</Filter>
+    </ClInclude>
+    <ClInclude Include="MathUtil.h">
+      <Filter>Math</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
