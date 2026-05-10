@@ -77,6 +77,11 @@ bool DXCommon::Initialize(HWND hwnd) {
 		return false;
 	}
 
+	// マテリアル用のResourceを作成する
+	if (!CreateMaterialResource()) {
+		return false;
+	}
+
 	// 画面全体に描画するためのViewportとScissorを設定する
 	CreateViewportAndScissor();
 
@@ -184,6 +189,11 @@ void DXCommon::Finalize() {
 	// GPUがまだResourceを使用している可能性があるので、解放前に待機する
 	if (commandQueue_ != nullptr && fence_ != nullptr) {
 		WaitForGpu();
+	}
+
+	if (materialResource_ != nullptr) {
+		materialResource_->Release();
+		materialResource_ = nullptr;
 	}
 
 	if (vertexResource_ != nullptr) {
@@ -305,6 +315,9 @@ void DXCommon::Draw() {
 
 	// 3頂点で1つの三角形を描画する
 	commandList_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+	// PixelShaderで使うマテリアルCBufferの場所を設定する
+	commandList_->SetGraphicsRootConstantBufferView(0, materialResource_->GetGPUVirtualAddress());
 
 	// 実際に描画命令を積む
 	commandList_->DrawInstanced(3, 1, 0, 0);
@@ -816,6 +829,15 @@ bool DXCommon::CreateGraphicsPipelineState() {
 	descriptionRootSignature.Flags =
 		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
+	// PixelShaderで使うConstantBufferのBind情報を設定する
+	D3D12_ROOT_PARAMETER rootParameters[1] = {};
+	rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	rootParameters[0].Descriptor.ShaderRegister = 0;
+
+	descriptionRootSignature.pParameters = rootParameters;
+	descriptionRootSignature.NumParameters = _countof(rootParameters);
+
 	// RootSignatureをシリアライズしてバイナリにする
 	ID3DBlob* signatureBlob = nullptr;
 	ID3DBlob* errorBlob = nullptr;
@@ -969,50 +991,54 @@ bool DXCommon::CreateGraphicsPipelineState() {
 	return true;
 }
 
-bool DXCommon::CreateVertexResource() {
-	// 頂点Resource用のHeap設定
+ID3D12Resource* DXCommon::CreateBufferResource(size_t sizeInBytes) {
+	// Buffer用のResourceを作成するためのHeap設定
 	D3D12_HEAP_PROPERTIES uploadHeapProperties{};
 	uploadHeapProperties.Type = D3D12_HEAP_TYPE_UPLOAD;
-	uploadHeapProperties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
-	uploadHeapProperties.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
-	uploadHeapProperties.CreationNodeMask = 1;
-	uploadHeapProperties.VisibleNodeMask = 1;
 
-	// 頂点Resourceの設定
-	D3D12_RESOURCE_DESC vertexResourceDesc{};
-	vertexResourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-	vertexResourceDesc.Width = sizeof(Vector4) * 3;
-	vertexResourceDesc.Height = 1;
-	vertexResourceDesc.DepthOrArraySize = 1;
-	vertexResourceDesc.MipLevels = 1;
-	vertexResourceDesc.SampleDesc.Count = 1;
-	vertexResourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+	// Buffer用のResource設定
+	D3D12_RESOURCE_DESC bufferResourceDesc{};
+	bufferResourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+	bufferResourceDesc.Width = sizeInBytes;
+	bufferResourceDesc.Height = 1;
+	bufferResourceDesc.DepthOrArraySize = 1;
+	bufferResourceDesc.MipLevels = 1;
+	bufferResourceDesc.SampleDesc.Count = 1;
+	bufferResourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
 
-	// 実際に頂点Resourceを作成する
+	// 実際にBufferResourceを作成する
+	ID3D12Resource* bufferResource = nullptr;
 	HRESULT hr = device_->CreateCommittedResource(
 		&uploadHeapProperties,
 		D3D12_HEAP_FLAG_NONE,
-		&vertexResourceDesc,
+		&bufferResourceDesc,
 		D3D12_RESOURCE_STATE_GENERIC_READ,
 		nullptr,
-		IID_PPV_ARGS(&vertexResource_)
+		IID_PPV_ARGS(&bufferResource)
 	);
 	assert(SUCCEEDED(hr));
 
 	if (FAILED(hr)) {
-		return false;
+		return nullptr;
 	}
 
-	// 頂点BufferViewを作成する
-	vertexBufferView_.BufferLocation = vertexResource_->GetGPUVirtualAddress();
-	vertexBufferView_.SizeInBytes = sizeof(Vector4) * 3;
-	vertexBufferView_.StrideInBytes = sizeof(Vector4);
+	return bufferResource;
+}
+
+bool DXCommon::CreateVertexResource() {
+	// 三角形の頂点Resourceを作成する
+	vertexResource_ = CreateBufferResource(sizeof(Vector4) * 3);
+	assert(vertexResource_ != nullptr);
+
+	if (vertexResource_ == nullptr) {
+		return false;
+	}
 
 	// 頂点Resourceにデータを書き込む
 	Vector4* vertexData = nullptr;
 
-	D3D12_RANGE readRange{};
-	hr = vertexResource_->Map(0, &readRange, reinterpret_cast<void**>(&vertexData));
+	// 書き込み用のアドレスを取得する
+	HRESULT hr = vertexResource_->Map(0, nullptr, reinterpret_cast<void**>(&vertexData));
 	assert(SUCCEEDED(hr));
 
 	if (FAILED(hr)) {
@@ -1028,10 +1054,41 @@ bool DXCommon::CreateVertexResource() {
 	// 右下
 	vertexData[2] = { 0.5f, -0.5f, 0.0f, 1.0f };
 
-	// 書き込みが終わったのでUnmapする
-	vertexResource_->Unmap(0, nullptr);
+	// 頂点バッファビューを作成する
+	vertexBufferView_.BufferLocation = vertexResource_->GetGPUVirtualAddress();
+	vertexBufferView_.SizeInBytes = sizeof(Vector4) * 3;
+	vertexBufferView_.StrideInBytes = sizeof(Vector4);
 
 	Log("Complete create VertexResource!!!\n");
+
+	return true;
+}
+
+bool DXCommon::CreateMaterialResource() {
+	// マテリアル用のResourceを作成する
+	materialResource_ = CreateBufferResource(sizeof(Material));
+	assert(materialResource_ != nullptr);
+
+	if (materialResource_ == nullptr) {
+		return false;
+	}
+
+	// マテリアルResourceにデータを書き込む
+	Material* materialData = nullptr;
+
+	// 書き込み用のアドレスを取得する
+	HRESULT hr = materialResource_->Map(0, nullptr, reinterpret_cast<void**>(&materialData));
+	assert(SUCCEEDED(hr));
+
+	if (FAILED(hr)) {
+		return false;
+	}
+
+	// 赤色を設定する
+	materialData->color = { 1.0f, 0.0f, 0.0f, 1.0f };
+
+	Log("Complete create MaterialResource!!!\n");
+
 	return true;
 }
 

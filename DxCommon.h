@@ -5,6 +5,7 @@
 #include <dxgi1_6.h>
 #include <dxcapi.h>
 
+#include <cstddef>
 #include <string>
 
 class DXCommon {
@@ -20,6 +21,10 @@ private:
 		float y;
 		float z;
 		float w;
+	};
+
+	struct Material {
+		Vector4 color;
 	};
 
 private:
@@ -42,7 +47,9 @@ private:
 	bool CreateFence();
 
 	bool CreateGraphicsPipelineState();
+	ID3D12Resource* CreateBufferResource(size_t sizeInBytes);
 	bool CreateVertexResource();
+	bool CreateMaterialResource();
 	void CreateViewportAndScissor();
 
 	IDxcBlob* CompileShader(
@@ -80,6 +87,8 @@ private:
 
 	ID3D12Resource* vertexResource_ = nullptr;
 	D3D12_VERTEX_BUFFER_VIEW vertexBufferView_ = {};
+
+	ID3D12Resource* materialResource_ = nullptr;
 
 	D3D12_VIEWPORT viewport_ = {};
 	D3D12_RECT scissorRect_ = {};
