@@ -9,6 +9,7 @@
 #include <string>
 
 #include "MathUtil.h"
+#include "TextureManager.h"
 
 class DXCommon {
 public:
@@ -21,6 +22,11 @@ private:
 	
 	struct Material {
 		Vector4 color;
+	};
+
+	struct VertexData {
+		Vector4 position;
+		Vector2 texcoord;
 	};
 
 	struct TransformationMatrix {
@@ -45,6 +51,7 @@ private:
 	bool GetSwapChainResources();
 	bool CreateRTV();
 	bool CreateFence();
+	bool CreateTexture();
 
 	bool CreateGraphicsPipelineState();
 	ID3D12Resource* CreateBufferResource(size_t sizeInBytes);
@@ -96,6 +103,8 @@ private:
 
 	ID3D12Resource* transformationMatrixResource_ = nullptr;
 	TransformationMatrix* transformationMatrixData_ = nullptr;
+
+	TextureManager textureManager_;
 
 	Transform transform_ = {
 		{ 1.0f, 1.0f, 1.0f },

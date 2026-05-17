@@ -96,13 +96,26 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
   </ItemDefinitionGroup>
   <ItemGroup>
     <None Include=".editorconfig" />
+    <None Include="Object3d.hlsli" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="CrashHandler.cpp" />
     <ClCompile Include="DxCommon.cpp" />
+    <ClCompile Include="externals\DirectXTex\BC.cpp" />
+    <ClCompile Include="externals\DirectXTex\BC4BC5.cpp" />
+    <ClCompile Include="externals\DirectXTex\BC6HBC7.cpp" />
+    <ClCompile Include="externals\DirectXTex\DirectXTexCompress.cpp" />
+    <ClCompile Include="externals\DirectXTex\DirectXTexConvert.cpp" />
+    <ClCompile Include="externals\DirectXTex\DirectXTexImage.cpp" />
+    <ClCompile Include="externals\DirectXTex\DirectXTexMipmaps.cpp" />
+    <ClCompile Include="externals\DirectXTex\DirectXTexMisc.cpp" />
+    <ClCompile Include="externals\DirectXTex\DirectXTexResize.cpp" />
+    <ClCompile Include="externals\DirectXTex\DirectXTexUtil.cpp" />
+    <ClCompile Include="externals\DirectXTex\DirectXTexWIC.cpp" />
     <ClCompile Include="Logger.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="MathUtil.cpp" />
+    <ClCompile Include="TextureManager.cpp" />
     <ClCompile Include="WinApp.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -110,6 +123,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     <ClInclude Include="DxCommon.h" />
     <ClInclude Include="Logger.h" />
     <ClInclude Include="MathUtil.h" />
+    <ClInclude Include="TextureManager.h" />
     <ClInclude Include="WinApp.h" />
     <ClInclude Include="WinConfig.h" />
   </ItemGroup>

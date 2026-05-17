@@ -34,6 +34,7 @@
   </ItemGroup>
   <ItemGroup>
     <None Include=".editorconfig" />
+    <None Include="Object3d.hlsli" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
@@ -54,6 +55,42 @@
     <ClCompile Include="MathUtil.cpp">
       <Filter>Math</Filter>
     </ClCompile>
+    <ClCompile Include="TextureManager.cpp">
+      <Filter>DxCommon</Filter>
+    </ClCompile>
+    <ClCompile Include="externals\DirectXTex\BC.cpp">
+      <Filter>DxCommon</Filter>
+    </ClCompile>
+    <ClCompile Include="externals\DirectXTex\BC4BC5.cpp">
+      <Filter>DxCommon</Filter>
+    </ClCompile>
+    <ClCompile Include="externals\DirectXTex\BC6HBC7.cpp">
+      <Filter>DxCommon</Filter>
+    </ClCompile>
+    <ClCompile Include="externals\DirectXTex\DirectXTexCompress.cpp">
+      <Filter>DxCommon</Filter>
+    </ClCompile>
+    <ClCompile Include="externals\DirectXTex\DirectXTexConvert.cpp">
+      <Filter>DxCommon</Filter>
+    </ClCompile>
+    <ClCompile Include="externals\DirectXTex\DirectXTexImage.cpp">
+      <Filter>DxCommon</Filter>
+    </ClCompile>
+    <ClCompile Include="externals\DirectXTex\DirectXTexMipmaps.cpp">
+      <Filter>DxCommon</Filter>
+    </ClCompile>
+    <ClCompile Include="externals\DirectXTex\DirectXTexMisc.cpp">
+      <Filter>DxCommon</Filter>
+    </ClCompile>
+    <ClCompile Include="externals\DirectXTex\DirectXTexResize.cpp">
+      <Filter>DxCommon</Filter>
+    </ClCompile>
+    <ClCompile Include="externals\DirectXTex\DirectXTexUtil.cpp">
+      <Filter>DxCommon</Filter>
+    </ClCompile>
+    <ClCompile Include="externals\DirectXTex\DirectXTexWIC.cpp">
+      <Filter>DxCommon</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="WinApp.h">
@@ -73,6 +110,9 @@
     </ClInclude>
     <ClInclude Include="MathUtil.h">
       <Filter>Math</Filter>
+    </ClInclude>
+    <ClInclude Include="TextureManager.h">
+      <Filter>DxCommon</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

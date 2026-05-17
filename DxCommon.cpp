@@ -68,6 +68,11 @@ bool DXCommon::Initialize(HWND hwnd) {
 		return false;
 	}
 
+	// Textureを読み込んでShaderから使えるようにする
+	if (!CreateTexture()) {
+		return false;
+	}
+
 	// 三角形を描画するためのPipelineStateを作成する
 	if (!CreateGraphicsPipelineState()) {
 		return false;
@@ -197,6 +202,8 @@ void DXCommon::Finalize() {
 		WaitForGpu();
 	}
 
+	textureManager_.Finalize();
+
 	if (transformationMatrixResource_ != nullptr) {
 		transformationMatrixResource_->Release();
 		transformationMatrixResource_ = nullptr;
@@ -325,6 +332,12 @@ void DXCommon::Draw() {
 	commandList_->SetGraphicsRootSignature(rootSignature_);
 	commandList_->SetPipelineState(graphicsPipelineState_);
 
+	// Shaderから参照するDescriptorHeapを設定する
+	ID3D12DescriptorHeap* descriptorHeaps[] = {
+		textureManager_.GetSRVDescriptorHeap()
+	};
+	commandList_->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
 	// 三角形の頂点データをInputAssemblerへ渡す
 	commandList_->IASetVertexBuffers(0, 1, &vertexBufferView_);
 
@@ -336,6 +349,9 @@ void DXCommon::Draw() {
 
 	// VertexShaderで使う座標変換CBufferの場所を設定する
 	commandList_->SetGraphicsRootConstantBufferView(1, transformationMatrixResource_->GetGPUVirtualAddress());
+
+	// PixelShaderで使うTexture用SRVのDescriptorTableを設定する
+	commandList_->SetGraphicsRootDescriptorTable(2, textureManager_.GetTextureSrvHandleGPU());
 
 	// 実際に描画命令を積む
 	commandList_->DrawInstanced(3, 1, 0, 0);
@@ -639,6 +655,15 @@ bool DXCommon::CreateFence() {
 	return true;
 }
 
+bool DXCommon::CreateTexture() {
+	// resources内のuvCheckerを読み込んでShaderから使えるようにする
+	if (!textureManager_.Initialize(device_, "Resources/uvChecker.png")) {
+		return false;
+	}
+
+	return true;
+}
+
 IDxcBlob* DXCommon::CompileShader(
 	const std::wstring& filePath,
 	const wchar_t* profile,
@@ -847,8 +872,8 @@ bool DXCommon::CreateGraphicsPipelineState() {
 	descriptionRootSignature.Flags =
 		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
-	// RootParameter作成。PixelShaderのMaterialとVertexShaderのTransform
-	D3D12_ROOT_PARAMETER rootParameters[2] = {};
+	// RootParameter作成。PixelShaderのMaterial、VertexShaderのTransform、Texture用SRV
+	D3D12_ROOT_PARAMETER rootParameters[3] = {};
 
 	// PixelShaderで使うMaterial用CBuffer
 	rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
@@ -860,8 +885,35 @@ bool DXCommon::CreateGraphicsPipelineState() {
 	rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
 	rootParameters[1].Descriptor.ShaderRegister = 0;
 
+	// PixelShaderでTextureを読むためのDescriptorRange
+	D3D12_DESCRIPTOR_RANGE descriptorRange[1] = {};
+	descriptorRange[0].BaseShaderRegister = 0;
+	descriptorRange[0].NumDescriptors = 1;
+	descriptorRange[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+	descriptorRange[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+	// PixelShaderで使うTexture用DescriptorTable
+	rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+	rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	rootParameters[2].DescriptorTable.pDescriptorRanges = descriptorRange;
+	rootParameters[2].DescriptorTable.NumDescriptorRanges = _countof(descriptorRange);
+
 	descriptionRootSignature.pParameters = rootParameters;
 	descriptionRootSignature.NumParameters = _countof(rootParameters);
+
+	// TextureをSamplingするためのSamplerを設定する
+	D3D12_STATIC_SAMPLER_DESC staticSamplers[1] = {};
+	staticSamplers[0].Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+	staticSamplers[0].AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+	staticSamplers[0].AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+	staticSamplers[0].AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+	staticSamplers[0].ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
+	staticSamplers[0].MaxLOD = D3D12_FLOAT32_MAX;
+	staticSamplers[0].ShaderRegister = 0;
+	staticSamplers[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+	descriptionRootSignature.pStaticSamplers = staticSamplers;
+	descriptionRootSignature.NumStaticSamplers = _countof(staticSamplers);
 
 	// RootSignatureをシリアライズしてバイナリにする
 	ID3DBlob* signatureBlob = nullptr;
@@ -937,7 +989,7 @@ bool DXCommon::CreateGraphicsPipelineState() {
 	}
 
 	// InputLayoutを設定する
-	D3D12_INPUT_ELEMENT_DESC inputElementDescs[1] = {};
+	D3D12_INPUT_ELEMENT_DESC inputElementDescs[2] = {};
 	inputElementDescs[0].SemanticName = "POSITION";
 	inputElementDescs[0].SemanticIndex = 0;
 	inputElementDescs[0].Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
@@ -945,6 +997,13 @@ bool DXCommon::CreateGraphicsPipelineState() {
 	inputElementDescs[0].AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT;
 	inputElementDescs[0].InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
 	inputElementDescs[0].InstanceDataStepRate = 0;
+	inputElementDescs[1].SemanticName = "TEXCOORD";
+	inputElementDescs[1].SemanticIndex = 0;
+	inputElementDescs[1].Format = DXGI_FORMAT_R32G32_FLOAT;
+	inputElementDescs[1].InputSlot = 0;
+	inputElementDescs[1].AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT;
+	inputElementDescs[1].InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
+	inputElementDescs[1].InstanceDataStepRate = 0;
 
 	D3D12_INPUT_LAYOUT_DESC inputLayoutDesc{};
 	inputLayoutDesc.pInputElementDescs = inputElementDescs;
@@ -1052,7 +1111,7 @@ ID3D12Resource* DXCommon::CreateBufferResource(size_t sizeInBytes) {
 
 bool DXCommon::CreateVertexResource() {
 	// 三角形の頂点Resourceを作成する
-	vertexResource_ = CreateBufferResource(sizeof(Vector4) * 3);
+	vertexResource_ = CreateBufferResource(sizeof(VertexData) * 3);
 	assert(vertexResource_ != nullptr);
 
 	if (vertexResource_ == nullptr) {
@@ -1060,7 +1119,7 @@ bool DXCommon::CreateVertexResource() {
 	}
 
 	// 頂点Resourceにデータを書き込む
-	Vector4* vertexData = nullptr;
+	VertexData* vertexData = nullptr;
 
 	// 書き込み用のアドレスを取得する
 	HRESULT hr = vertexResource_->Map(0, nullptr, reinterpret_cast<void**>(&vertexData));
@@ -1071,18 +1130,21 @@ bool DXCommon::CreateVertexResource() {
 	}
 
 	// 左下
-	vertexData[0] = { -0.5f, -0.5f, 0.0f, 1.0f };
+	vertexData[0].position = { -0.5f, -0.5f, 0.0f, 1.0f };
+	vertexData[0].texcoord = { 0.0f, 1.0f };
 
 	// 上
-	vertexData[1] = { 0.0f, 0.5f, 0.0f, 1.0f };
+	vertexData[1].position = { 0.0f, 0.5f, 0.0f, 1.0f };
+	vertexData[1].texcoord = { 0.5f, 0.0f };
 
 	// 右下
-	vertexData[2] = { 0.5f, -0.5f, 0.0f, 1.0f };
+	vertexData[2].position = { 0.5f, -0.5f, 0.0f, 1.0f };
+	vertexData[2].texcoord = { 1.0f, 1.0f };
 
 	// 頂点バッファビューを作成する
 	vertexBufferView_.BufferLocation = vertexResource_->GetGPUVirtualAddress();
-	vertexBufferView_.SizeInBytes = sizeof(Vector4) * 3;
-	vertexBufferView_.StrideInBytes = sizeof(Vector4);
+	vertexBufferView_.SizeInBytes = sizeof(VertexData) * 3;
+	vertexBufferView_.StrideInBytes = sizeof(VertexData);
 
 	Log("Complete create VertexResource!!!\n");
 
@@ -1109,8 +1171,8 @@ bool DXCommon::CreateMaterialResource() {
 		return false;
 	}
 
-	// 赤色を設定する
-	materialData->color = { 1.0f, 0.0f, 0.0f, 1.0f };
+	// Textureの色をそのまま見やすくするため白色を設定する
+	materialData->color = { 1.0f, 1.0f, 1.0f, 1.0f };
 
 	Log("Complete create MaterialResource!!!\n");
 
