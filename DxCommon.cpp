@@ -68,8 +68,18 @@ bool DXCommon::Initialize(HWND hwnd) {
 		return false;
 	}
 
+	// TextureやImGuiで使うSRV用DescriptorHeapを作成する
+	if (!CreateSRVDescriptorHeap()) {
+		return false;
+	}
+
 	// Textureを読み込んでShaderから使えるようにする
 	if (!CreateTexture()) {
+		return false;
+	}
+
+	// 開発用UIを初期化する
+	if (!CreateDebugGui(hwnd)) {
 		return false;
 	}
 
@@ -202,6 +212,7 @@ void DXCommon::Finalize() {
 		WaitForGpu();
 	}
 
+	debugGui_.Finalize();
 	textureManager_.Finalize();
 
 	if (transformationMatrixResource_ != nullptr) {
@@ -238,6 +249,11 @@ void DXCommon::Finalize() {
 	if (fence_ != nullptr) {
 		fence_->Release();
 		fence_ = nullptr;
+	}
+
+	if (srvDescriptorHeap_ != nullptr) {
+		srvDescriptorHeap_->Release();
+		srvDescriptorHeap_ = nullptr;
 	}
 
 	if (rtvDescriptorHeap_ != nullptr) {
@@ -328,13 +344,18 @@ void DXCommon::Draw() {
 	// 座標変換行列を更新する
 	UpdateTransformationMatrix();
 
+	// ImGuiのフレームを開始して開発用UIを作る
+	debugGui_.BeginFrame();
+	debugGui_.ShowDemoWindow();
+	debugGui_.EndFrame();
+
 	// Shaderと描画設定をまとめたPipelineStateを設定する
 	commandList_->SetGraphicsRootSignature(rootSignature_);
 	commandList_->SetPipelineState(graphicsPipelineState_);
 
 	// Shaderから参照するDescriptorHeapを設定する
 	ID3D12DescriptorHeap* descriptorHeaps[] = {
-		textureManager_.GetSRVDescriptorHeap()
+		srvDescriptorHeap_
 	};
 	commandList_->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
@@ -355,6 +376,9 @@ void DXCommon::Draw() {
 
 	// 実際に描画命令を積む
 	commandList_->DrawInstanced(3, 1, 0, 0);
+
+	// 最後にImGuiを描画して画面の前面に表示する
+	debugGui_.Render(commandList_);
 
 	// BackBufferを表示用の状態へ戻す
 	barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
@@ -566,19 +590,9 @@ bool DXCommon::CreateSwapChain(HWND hwnd) {
 
 bool DXCommon::CreateRTVDescriptorHeap() {
 	// RTV用のDescriptorHeapを作成する
-	D3D12_DESCRIPTOR_HEAP_DESC rtvDescriptorHeapDesc{};
-	rtvDescriptorHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-	rtvDescriptorHeapDesc.NumDescriptors = kBackBufferCount;
-	rtvDescriptorHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-	rtvDescriptorHeapDesc.NodeMask = 0;
+	rtvDescriptorHeap_ = CreateDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_RTV, kBackBufferCount, false);
 
-	HRESULT hr = device_->CreateDescriptorHeap(
-		&rtvDescriptorHeapDesc,
-		IID_PPV_ARGS(&rtvDescriptorHeap_)
-	);
-	assert(SUCCEEDED(hr));
-
-	if (FAILED(hr)) {
+	if (rtvDescriptorHeap_ == nullptr) {
 		return false;
 	}
 
@@ -586,6 +600,26 @@ bool DXCommon::CreateRTVDescriptorHeap() {
 	rtvDescriptorSize_ = device_->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 
 	Log("Complete create RTV DescriptorHeap!!!\n");
+	return true;
+}
+
+bool DXCommon::CreateSRVDescriptorHeap() {
+	// SRV用のHeapでDescriptorの数は128。Shader内で触るのでShaderVisibleはtrue
+	srvDescriptorHeap_ = CreateDescriptorHeap(
+		D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
+		kSRVDescriptorCount,
+		true
+	);
+
+	if (srvDescriptorHeap_ == nullptr) {
+		return false;
+	}
+
+	// Descriptorの1個分のサイズを取得する
+	srvDescriptorSize_ =
+		device_->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+	Log("Complete create SRV DescriptorHeap!!!\n");
 	return true;
 }
 
@@ -657,7 +691,29 @@ bool DXCommon::CreateFence() {
 
 bool DXCommon::CreateTexture() {
 	// resources内のuvCheckerを読み込んでShaderから使えるようにする
-	if (!textureManager_.Initialize(device_, "Resources/uvChecker.png")) {
+	if (!textureManager_.Initialize(
+		device_,
+		"Resources/uvChecker.png",
+		GetSRVCPUDescriptorHandle(kTextureSRVIndex),
+		GetSRVGPUDescriptorHandle(kTextureSRVIndex)
+	)) {
+		return false;
+	}
+
+	return true;
+}
+
+bool DXCommon::CreateDebugGui(HWND hwnd) {
+	// ImGuiはSRV用Heapの先頭を使ってフォント用Textureを管理する
+	if (!debugGui_.Initialize(
+		hwnd,
+		device_,
+		kBackBufferCount,
+		DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
+		srvDescriptorHeap_,
+		GetSRVCPUDescriptorHandle(kImGuiSRVIndex),
+		GetSRVGPUDescriptorHandle(kImGuiSRVIndex)
+	)) {
 		return false;
 	}
 
@@ -1073,6 +1129,47 @@ bool DXCommon::CreateGraphicsPipelineState() {
 
 	Log("Complete create GraphicsPipelineState!!!\n");
 	return true;
+}
+
+ID3D12DescriptorHeap* DXCommon::CreateDescriptorHeap(
+	D3D12_DESCRIPTOR_HEAP_TYPE heapType,
+	UINT numDescriptors,
+	bool shaderVisible
+) {
+	// DescriptorHeapの作成処理を共通化する
+	ID3D12DescriptorHeap* descriptorHeap = nullptr;
+
+	D3D12_DESCRIPTOR_HEAP_DESC descriptorHeapDesc{};
+	descriptorHeapDesc.Type = heapType;
+	descriptorHeapDesc.NumDescriptors = numDescriptors;
+	descriptorHeapDesc.Flags =
+		shaderVisible ? D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE : D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+
+	HRESULT hr = device_->CreateDescriptorHeap(
+		&descriptorHeapDesc,
+		IID_PPV_ARGS(&descriptorHeap)
+	);
+	assert(SUCCEEDED(hr));
+
+	if (FAILED(hr)) {
+		return nullptr;
+	}
+
+	return descriptorHeap;
+}
+
+D3D12_CPU_DESCRIPTOR_HANDLE DXCommon::GetSRVCPUDescriptorHandle(UINT index) const {
+	// SRV用DescriptorHeapの指定した位置のCPUHandleを取得する
+	D3D12_CPU_DESCRIPTOR_HANDLE handle = srvDescriptorHeap_->GetCPUDescriptorHandleForHeapStart();
+	handle.ptr += static_cast<SIZE_T>(srvDescriptorSize_) * index;
+	return handle;
+}
+
+D3D12_GPU_DESCRIPTOR_HANDLE DXCommon::GetSRVGPUDescriptorHandle(UINT index) const {
+	// SRV用DescriptorHeapの指定した位置のGPUHandleを取得する
+	D3D12_GPU_DESCRIPTOR_HANDLE handle = srvDescriptorHeap_->GetGPUDescriptorHandleForHeapStart();
+	handle.ptr += static_cast<SIZE_T>(srvDescriptorSize_) * index;
+	return handle;
 }
 
 ID3D12Resource* DXCommon::CreateBufferResource(size_t sizeInBytes) {

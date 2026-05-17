@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <string>
 
+#include "DebugGui.h"
 #include "MathUtil.h"
 #include "TextureManager.h"
 
@@ -35,6 +36,9 @@ private:
 
 private:
 	static constexpr UINT kBackBufferCount = 2;
+	static constexpr UINT kSRVDescriptorCount = 128;
+	static constexpr UINT kImGuiSRVIndex = 0;
+	static constexpr UINT kTextureSRVIndex = 1;
 
 private:
 	void EnableDebugLayer();
@@ -48,12 +52,21 @@ private:
 	bool CreateCommandList();
 	bool CreateSwapChain(HWND hwnd);
 	bool CreateRTVDescriptorHeap();
+	bool CreateSRVDescriptorHeap();
 	bool GetSwapChainResources();
 	bool CreateRTV();
 	bool CreateFence();
 	bool CreateTexture();
+	bool CreateDebugGui(HWND hwnd);
 
 	bool CreateGraphicsPipelineState();
+	ID3D12DescriptorHeap* CreateDescriptorHeap(
+		D3D12_DESCRIPTOR_HEAP_TYPE heapType,
+		UINT numDescriptors,
+		bool shaderVisible
+	);
+	D3D12_CPU_DESCRIPTOR_HANDLE GetSRVCPUDescriptorHandle(UINT index) const;
+	D3D12_GPU_DESCRIPTOR_HANDLE GetSRVGPUDescriptorHandle(UINT index) const;
 	ID3D12Resource* CreateBufferResource(size_t sizeInBytes);
 	bool CreateVertexResource();
 	bool CreateMaterialResource();
@@ -89,6 +102,9 @@ private:
 	D3D12_CPU_DESCRIPTOR_HANDLE rtvHandles_[kBackBufferCount] = {};
 	UINT rtvDescriptorSize_ = 0;
 
+	ID3D12DescriptorHeap* srvDescriptorHeap_ = nullptr;
+	UINT srvDescriptorSize_ = 0;
+
 	ID3D12Fence* fence_ = nullptr;
 	UINT64 fenceValue_ = 0;
 	HANDLE fenceEvent_ = nullptr;
@@ -105,6 +121,7 @@ private:
 	TransformationMatrix* transformationMatrixData_ = nullptr;
 
 	TextureManager textureManager_;
+	DebugGui debugGui_;
 
 	Transform transform_ = {
 		{ 1.0f, 1.0f, 1.0f },

@@ -365,3 +365,9 @@ MigrationBackup/
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
 
+# ImGui local layout settings
+imgui.ini
+
+# DirectXTex generated shader files
+externals/DirectXTex/Shaders/Compiled/
+

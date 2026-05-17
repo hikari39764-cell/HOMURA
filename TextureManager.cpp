@@ -49,14 +49,15 @@ namespace {
 
 } // namespace
 
-bool TextureManager::Initialize(ID3D12Device* device, const std::string& filePath) {
+bool TextureManager::Initialize(
+	ID3D12Device* device,
+	const std::string& filePath,
+	D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU,
+	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU
+) {
 	assert(device != nullptr);
 
 	if (device == nullptr) {
-		return false;
-	}
-
-	if (!CreateSRVDescriptorHeap(device)) {
 		return false;
 	}
 
@@ -82,7 +83,7 @@ bool TextureManager::Initialize(ID3D12Device* device, const std::string& filePat
 	}
 
 	// PixelShaderからTextureを読めるようにSRVを作成する
-	CreateTextureSRV(device, metadata);
+	CreateTextureSRV(device, metadata, textureSrvHandleCPU, textureSrvHandleGPU);
 
 	Log(std::format("Complete create TextureManager, path:{}!!!\n", filePath));
 	return true;
@@ -94,45 +95,11 @@ void TextureManager::Finalize() {
 		textureResource_ = nullptr;
 	}
 
-	if (srvDescriptorHeap_ != nullptr) {
-		srvDescriptorHeap_->Release();
-		srvDescriptorHeap_ = nullptr;
-	}
-
 	textureSrvHandleGPU_ = {};
-	srvDescriptorSize_ = 0;
-}
-
-ID3D12DescriptorHeap* TextureManager::GetSRVDescriptorHeap() const {
-	return srvDescriptorHeap_;
 }
 
 D3D12_GPU_DESCRIPTOR_HANDLE TextureManager::GetTextureSrvHandleGPU() const {
 	return textureSrvHandleGPU_;
-}
-
-bool TextureManager::CreateSRVDescriptorHeap(ID3D12Device* device) {
-	// Shaderから参照できるSRV用DescriptorHeapを作成する
-	D3D12_DESCRIPTOR_HEAP_DESC srvDescriptorHeapDesc{};
-	srvDescriptorHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-	srvDescriptorHeapDesc.NumDescriptors = kSRVDescriptorCount;
-	srvDescriptorHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-
-	HRESULT hr = device->CreateDescriptorHeap(
-		&srvDescriptorHeapDesc,
-		IID_PPV_ARGS(&srvDescriptorHeap_)
-	);
-	assert(SUCCEEDED(hr));
-
-	if (FAILED(hr)) {
-		return false;
-	}
-
-	// Descriptorの1個分のサイズを取得する
-	srvDescriptorSize_ =
-		device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-
-	return true;
 }
 
 DirectX::ScratchImage TextureManager::LoadTexture(const std::string& filePath) {
@@ -247,7 +214,12 @@ bool TextureManager::UploadTextureData(
 	return true;
 }
 
-void TextureManager::CreateTextureSRV(ID3D12Device* device, const DirectX::TexMetadata& metadata) {
+void TextureManager::CreateTextureSRV(
+	ID3D12Device* device,
+	const DirectX::TexMetadata& metadata,
+	D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU,
+	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU
+) {
 	// metadataを基にSRVの設定を行う
 	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
 	srvDesc.Format = metadata.format;
@@ -255,13 +227,7 @@ void TextureManager::CreateTextureSRV(ID3D12Device* device, const DirectX::TexMe
 	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
 	srvDesc.Texture2D.MipLevels = UINT(metadata.mipLevels);
 
-	// SRVを作成するDescriptorHeapの場所を決める
-	D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU =
-		srvDescriptorHeap_->GetCPUDescriptorHandleForHeapStart();
-	textureSrvHandleCPU.ptr += static_cast<SIZE_T>(srvDescriptorSize_) * kTextureSRVIndex;
-
-	textureSrvHandleGPU_ = srvDescriptorHeap_->GetGPUDescriptorHandleForHeapStart();
-	textureSrvHandleGPU_.ptr += static_cast<SIZE_T>(srvDescriptorSize_) * kTextureSRVIndex;
+	textureSrvHandleGPU_ = textureSrvHandleGPU;
 
 	// SRVを作成する
 	device->CreateShaderResourceView(textureResource_, &srvDesc, textureSrvHandleCPU);
