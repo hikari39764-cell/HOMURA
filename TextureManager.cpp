@@ -3,6 +3,7 @@
 #include <Windows.h>
 
 #include <cassert>
+#include <cstring>
 #include <format>
 
 #pragma comment(lib, "windowscodecs.lib")
@@ -51,17 +52,23 @@ namespace {
 
 bool TextureManager::Initialize(
 	ID3D12Device* device,
+	ID3D12GraphicsCommandList* commandList,
 	const std::string& filePath,
 	D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU,
-	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU
+	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU,
+	ID3D12Resource** intermediateResource
 ) {
 	assert(device != nullptr);
+	assert(commandList != nullptr);
+	assert(intermediateResource != nullptr);
 
-	if (device == nullptr) {
+	if (device == nullptr || commandList == nullptr || intermediateResource == nullptr) {
 		return false;
 	}
 
-	// Textureを読み込んでmipmap込みの画像データにする
+	*intermediateResource = nullptr;
+
+	// Textureファイルを読み込んでmipmap込みの画像データにする
 	DirectX::ScratchImage mipImages = LoadTexture(filePath);
 
 	if (mipImages.GetImageCount() == 0) {
@@ -70,19 +77,21 @@ bool TextureManager::Initialize(
 
 	const DirectX::TexMetadata& metadata = mipImages.GetMetadata();
 
-	// 読み込んだ画像情報を基にTexture用Resourceを作成する
+	// 読み込んだ画像情報を基にGPU側のTextureResourceを作る
 	textureResource_ = CreateTextureResource(device, metadata);
 
 	if (textureResource_ == nullptr) {
 		return false;
 	}
 
-	// Texture用Resourceへ実際の画像データを転送する
-	if (!UploadTextureData(textureResource_, mipImages)) {
+	// CPUから書き込む中間Resourceを経由してTextureResourceへ転送する
+	*intermediateResource = UploadTextureData(device, commandList, textureResource_, mipImages);
+
+	if (*intermediateResource == nullptr) {
 		return false;
 	}
 
-	// PixelShaderからTextureを読めるようにSRVを作成する
+	// PixelShaderからTextureを読めるようにSRVを作る
 	CreateTextureSRV(device, metadata, textureSrvHandleCPU, textureSrvHandleGPU);
 
 	Log(std::format("Complete create TextureManager, path:{}!!!\n", filePath));
@@ -150,18 +159,55 @@ ID3D12Resource* TextureManager::CreateTextureResource(
 	resourceDesc.Width = UINT(metadata.width);
 	resourceDesc.Height = UINT(metadata.height);
 	resourceDesc.MipLevels = UINT16(metadata.mipLevels);
-	resourceDesc.DepthOrArraySize = UINT16(metadata.arraySize);
+	resourceDesc.DepthOrArraySize = UINT16(
+		metadata.dimension == DirectX::TEX_DIMENSION_TEXTURE3D
+		? metadata.depth
+		: metadata.arraySize
+	);
 	resourceDesc.Format = metadata.format;
 	resourceDesc.SampleDesc.Count = 1;
 	resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION(metadata.dimension);
 
-	// TextureにCPUから書き込めるようにHeapを設定する
+	// TextureはGPU側のVRAMに配置する
 	D3D12_HEAP_PROPERTIES heapProperties{};
-	heapProperties.Type = D3D12_HEAP_TYPE_CUSTOM;
-	heapProperties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_WRITE_BACK;
-	heapProperties.MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
+	heapProperties.Type = D3D12_HEAP_TYPE_DEFAULT;
 
-	// Texture用Resourceを生成する
+	// データ転送を受けられる状態でTexture用Resourceを生成する
+	ID3D12Resource* resource = nullptr;
+	HRESULT hr = device->CreateCommittedResource(
+		&heapProperties,
+		D3D12_HEAP_FLAG_NONE,
+		&resourceDesc,
+		D3D12_RESOURCE_STATE_COPY_DEST,
+		nullptr,
+		IID_PPV_ARGS(&resource)
+	);
+	assert(SUCCEEDED(hr));
+
+	if (FAILED(hr)) {
+		return nullptr;
+	}
+
+	return resource;
+}
+
+ID3D12Resource* TextureManager::CreateIntermediateResource(
+	ID3D12Device* device,
+	uint64_t sizeInBytes
+) {
+	// CPUから書き込むため、UploadHeap上に中間Resourceを作る
+	D3D12_HEAP_PROPERTIES heapProperties{};
+	heapProperties.Type = D3D12_HEAP_TYPE_UPLOAD;
+
+	D3D12_RESOURCE_DESC resourceDesc{};
+	resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+	resourceDesc.Width = sizeInBytes;
+	resourceDesc.Height = 1;
+	resourceDesc.DepthOrArraySize = 1;
+	resourceDesc.MipLevels = 1;
+	resourceDesc.SampleDesc.Count = 1;
+	resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
 	ID3D12Resource* resource = nullptr;
 	HRESULT hr = device->CreateCommittedResource(
 		&heapProperties,
@@ -180,37 +226,142 @@ ID3D12Resource* TextureManager::CreateTextureResource(
 	return resource;
 }
 
-bool TextureManager::UploadTextureData(
+ID3D12Resource* TextureManager::UploadTextureData(
+	ID3D12Device* device,
+	ID3D12GraphicsCommandList* commandList,
 	ID3D12Resource* texture,
 	const DirectX::ScratchImage& mipImages
 ) {
-	// 全てのmipmapについてTextureへデータを転送する
-	const DirectX::TexMetadata& metadata = mipImages.GetMetadata();
+	const size_t imageCount = mipImages.GetImageCount();
 
-	for (size_t mipLevel = 0; mipLevel < metadata.mipLevels; ++mipLevel) {
-		// mipmapレベルを指定して画像を取得する
-		const DirectX::Image* img = mipImages.GetImage(mipLevel, 0, 0);
-		assert(img != nullptr);
+	if (imageCount == 0) {
+		return nullptr;
+	}
 
-		if (img == nullptr) {
-			return false;
+	std::vector<D3D12_SUBRESOURCE_DATA> subresources;
+	subresources.reserve(imageCount);
+	const DirectX::Image* images = mipImages.GetImages();
+
+	for (size_t index = 0; index < imageCount; ++index) {
+		const DirectX::Image& image = images[index];
+		assert(image.pixels != nullptr);
+
+		if (image.pixels == nullptr) {
+			return nullptr;
 		}
 
-		// Textureに転送する
-		HRESULT hr = texture->WriteToSubresource(
-			UINT(mipLevel),
-			nullptr,
-			img->pixels,
-			UINT(img->rowPitch),
-			UINT(img->slicePitch)
-		);
-		assert(SUCCEEDED(hr));
+		D3D12_SUBRESOURCE_DATA subresource{};
+		subresource.pData = image.pixels;
+		subresource.RowPitch = LONG_PTR(image.rowPitch);
+		subresource.SlicePitch = LONG_PTR(image.slicePitch);
+		subresources.push_back(subresource);
+	}
 
-		if (FAILED(hr)) {
-			return false;
+	const UINT subresourceCount = UINT(subresources.size());
+	const D3D12_RESOURCE_DESC resourceDesc = texture->GetDesc();
+
+	std::vector<D3D12_PLACED_SUBRESOURCE_FOOTPRINT> layouts(subresourceCount);
+	std::vector<UINT> numRows(subresourceCount);
+	std::vector<uint64_t> rowSizesInBytes(subresourceCount);
+	uint64_t intermediateSize = 0;
+
+	// Textureへ転送するために必要な中間Resourceのサイズを計算する
+	device->GetCopyableFootprints(
+		&resourceDesc,
+		0,
+		subresourceCount,
+		0,
+		layouts.data(),
+		numRows.data(),
+		rowSizesInBytes.data(),
+		&intermediateSize
+	);
+
+	ID3D12Resource* intermediateResource = CreateIntermediateResource(device, intermediateSize);
+
+	if (intermediateResource == nullptr) {
+		return nullptr;
+	}
+
+	if (!CopyTextureDataToIntermediate(
+		intermediateResource,
+		subresources,
+		layouts,
+		numRows,
+		rowSizesInBytes
+	)) {
+		intermediateResource->Release();
+		intermediateResource = nullptr;
+		return nullptr;
+	}
+
+	// 中間ResourceからTextureResourceへコピーする命令を積む
+	for (UINT index = 0; index < subresourceCount; ++index) {
+		D3D12_TEXTURE_COPY_LOCATION destination{};
+		destination.pResource = texture;
+		destination.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+		destination.SubresourceIndex = index;
+
+		D3D12_TEXTURE_COPY_LOCATION source{};
+		source.pResource = intermediateResource;
+		source.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+		source.PlacedFootprint = layouts[index];
+
+		commandList->CopyTextureRegion(&destination, 0, 0, 0, &source, nullptr);
+	}
+
+	// 転送後にShaderから読める状態へ変更する
+	D3D12_RESOURCE_BARRIER barrier{};
+	barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+	barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+	barrier.Transition.pResource = texture;
+	barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+	barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+	barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_GENERIC_READ;
+	commandList->ResourceBarrier(1, &barrier);
+
+	return intermediateResource;
+}
+
+bool TextureManager::CopyTextureDataToIntermediate(
+	ID3D12Resource* intermediateResource,
+	const std::vector<D3D12_SUBRESOURCE_DATA>& subresources,
+	const std::vector<D3D12_PLACED_SUBRESOURCE_FOOTPRINT>& layouts,
+	const std::vector<UINT>& numRows,
+	const std::vector<uint64_t>& rowSizesInBytes
+) {
+	// 中間ResourceへCPUから実データを書き込む
+	uint8_t* mappedData = nullptr;
+	HRESULT hr = intermediateResource->Map(0, nullptr, reinterpret_cast<void**>(&mappedData));
+	assert(SUCCEEDED(hr));
+
+	if (FAILED(hr)) {
+		return false;
+	}
+
+	for (size_t index = 0; index < subresources.size(); ++index) {
+		const D3D12_SUBRESOURCE_DATA& subresource = subresources[index];
+		const D3D12_PLACED_SUBRESOURCE_FOOTPRINT& layout = layouts[index];
+		const uint8_t* sourceBase = static_cast<const uint8_t*>(subresource.pData);
+		uint8_t* destinationBase = mappedData + layout.Offset;
+
+		for (UINT z = 0; z < layout.Footprint.Depth; ++z) {
+			const uint8_t* sourceSlice =
+				sourceBase + static_cast<size_t>(subresource.SlicePitch) * z;
+			uint8_t* destinationSlice =
+				destinationBase + static_cast<size_t>(layout.Footprint.RowPitch) * numRows[index] * z;
+
+			for (UINT y = 0; y < numRows[index]; ++y) {
+				std::memcpy(
+					destinationSlice + static_cast<size_t>(layout.Footprint.RowPitch) * y,
+					sourceSlice + static_cast<size_t>(subresource.RowPitch) * y,
+					static_cast<size_t>(rowSizesInBytes[index])
+				);
+			}
 		}
 	}
 
+	intermediateResource->Unmap(0, nullptr);
 	return true;
 }
 

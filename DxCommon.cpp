@@ -691,14 +691,57 @@ bool DXCommon::CreateFence() {
 
 bool DXCommon::CreateTexture() {
 	// resources内のuvCheckerを読み込んでShaderから使えるようにする
-	if (!textureManager_.Initialize(
-		device_,
-		"Resources/uvChecker.png",
-		GetSRVCPUDescriptorHandle(kTextureSRVIndex),
-		GetSRVGPUDescriptorHandle(kTextureSRVIndex)
-	)) {
+	// Texture転送用のCommandListを記録できる状態にする
+	HRESULT hr = commandAllocator_->Reset();
+	assert(SUCCEEDED(hr));
+
+	if (FAILED(hr)) {
 		return false;
 	}
+
+	hr = commandList_->Reset(commandAllocator_, nullptr);
+	assert(SUCCEEDED(hr));
+
+	if (FAILED(hr)) {
+		return false;
+	}
+
+	ID3D12Resource* intermediateResource = nullptr;
+
+	if (!textureManager_.Initialize(
+		device_,
+		commandList_,
+		"Resources/uvChecker.png",
+		GetSRVCPUDescriptorHandle(kTextureSRVIndex),
+		GetSRVGPUDescriptorHandle(kTextureSRVIndex),
+		&intermediateResource
+	)) {
+		if (intermediateResource != nullptr) {
+			intermediateResource->Release();
+			intermediateResource = nullptr;
+		}
+
+		return false;
+	}
+
+	// Texture転送のCommandListを確定してGPUに実行してもらう
+	hr = commandList_->Close();
+	assert(SUCCEEDED(hr));
+
+	if (FAILED(hr)) {
+		intermediateResource->Release();
+		intermediateResource = nullptr;
+		return false;
+	}
+
+	ID3D12CommandList* commandLists[] = { commandList_ };
+	commandQueue_->ExecuteCommandLists(1, commandLists);
+
+	// 転送が完了するまで中間Resourceは保持しておく
+	WaitForGpu();
+
+	intermediateResource->Release();
+	intermediateResource = nullptr;
 
 	return true;
 }
