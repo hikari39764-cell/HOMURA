@@ -107,7 +107,7 @@ bool DXCommon::Initialize(HWND hwnd) {
 		return false;
 	}
 
-	// 三角形の頂点Resourceを作成する
+	// 球の頂点Resourceを作成する
 	if (!CreateVertexResource()) {
 		return false;
 	}
@@ -427,23 +427,30 @@ void DXCommon::Draw() {
 	debugGui_.BeginFrame();
 
 #ifdef USE_IMGUI
-	if (materialData_ != nullptr) {
-		ImGui::Begin("Settings");
-		if (materialData_ != nullptr) {
-			ImGui::ColorEdit4("triangle material", &materialData_->color.x);
-		}
+	ImGui::Begin("Settings");
 
-		if (materialDataSprite_ != nullptr) {
-			ImGui::ColorEdit4("sprite material", &materialDataSprite_->color.x);
-		}
-		ImGui::DragFloat3("translateSprite", &transformSprite_.translate.x, 1.0f);
-		ImGui::DragFloat3("scaleSprite", &transformSprite_.scale.x, 0.01f);
-		ImGui::End();
+	if (materialData_ != nullptr) {
+		ImGui::ColorEdit4("sphere material", &materialData_->color.x);
 	}
+
+	if (materialDataSprite_ != nullptr) {
+		ImGui::ColorEdit4("sprite material", &materialDataSprite_->color.x);
+	}
+
+	ImGui::DragFloat3("sphere translate", &transform_.translate.x, 0.01f);
+	ImGui::DragFloat3("sphere rotate", &transform_.rotate.x, 0.01f);
+	ImGui::DragFloat3("sphere scale", &transform_.scale.x, 0.01f);
+
+	ImGui::DragFloat3("camera translate", &cameraTransform_.translate.x, 0.01f);
+	ImGui::DragFloat3("camera rotate", &cameraTransform_.rotate.x, 0.01f);
+
+	ImGui::DragFloat3("translateSprite", &transformSprite_.translate.x, 1.0f);
+	ImGui::DragFloat3("scaleSprite", &transformSprite_.scale.x, 0.01f);
+
+	ImGui::End();
 #else
 	debugGui_.ShowDemoWindow();
 #endif
-
 	debugGui_.EndFrame();
 
 	// Shaderと描画設定をまとめたPipelineStateを設定する
@@ -456,10 +463,10 @@ void DXCommon::Draw() {
 	};
 	commandList_->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-	// 三角形の頂点データをInputAssemblerへ渡す
+	// 球の頂点データをInputAssemblerへ渡す
 	commandList_->IASetVertexBuffers(0, 1, &vertexBufferView_);
 
-	// 3頂点で1つの三角形を描画する
+	// 三角形リストとして球を描画する
 	commandList_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
 	// PixelShaderで使うマテリアルCBufferの場所を設定する
@@ -471,8 +478,8 @@ void DXCommon::Draw() {
 	// PixelShaderで使うTexture用SRVのDescriptorTableを設定する
 	commandList_->SetGraphicsRootDescriptorTable(2, textureManager_.GetTextureSrvHandleGPU());
 
-	// 実際に描画命令を積む
-	commandList_->DrawInstanced(6, 1, 0, 0);
+	// 実際に球の描画命令を積む
+	commandList_->DrawInstanced(kSphereVertexCount, 1, 0, 0);
 
 	// Spriteの描画
 	commandList_->IASetVertexBuffers(0, 1, &vertexBufferViewSprite_);
@@ -1466,8 +1473,8 @@ ID3D12Resource* DXCommon::CreateBufferResource(size_t sizeInBytes) {
 }
 
 bool DXCommon::CreateVertexResource() {
-	// 三角形2枚分の頂点Resourceを作成する
-	vertexResource_ = CreateBufferResource(sizeof(VertexData) * 6);
+	// 球用の頂点Resourceを作成する
+	vertexResource_ = CreateBufferResource(sizeof(VertexData) * kSphereVertexCount);
 	assert(vertexResource_ != nullptr);
 
 	if (vertexResource_ == nullptr) {
@@ -1489,32 +1496,94 @@ bool DXCommon::CreateVertexResource() {
 		return false;
 	}
 
-	// 1枚目の三角形
-	vertexData[0].position = { -0.5f, -0.5f, 0.0f, 1.0f };
-	vertexData[0].texcoord = { 0.0f, 1.0f };
+	// 円周率
+	const float kPi = 3.14159265358979323846f;
 
-	vertexData[1].position = { 0.0f, 0.5f, 0.0f, 1.0f };
-	vertexData[1].texcoord = { 0.5f, 0.0f };
+	// 経度方向の1分割分の角度
+	const float kLonEvery = kPi * 2.0f / float(kSphereSubdivision);
 
-	vertexData[2].position = { 0.5f, -0.5f, 0.0f, 1.0f };
-	vertexData[2].texcoord = { 1.0f, 1.0f };
+	// 緯度方向の1分割分の角度
+	const float kLatEvery = kPi / float(kSphereSubdivision);
 
-	// 2枚目の三角形
-	vertexData[3].position = { -0.5f, -0.5f, 0.5f, 1.0f };
-	vertexData[3].texcoord = { 0.0f, 1.0f };
+	// 緯度方向に分割する
+	for (uint32_t latIndex = 0; latIndex < kSphereSubdivision; ++latIndex) {
+		// 緯度。下から上へ作っていくため、最初は -π/2
+		float lat = -kPi / 2.0f + kLatEvery * float(latIndex);
 
-	vertexData[4].position = { 0.0f, 0.0f, 0.0f, 1.0f };
-	vertexData[4].texcoord = { 0.5f, 0.0f };
+		// 経度方向に分割する
+		for (uint32_t lonIndex = 0; lonIndex < kSphereSubdivision; ++lonIndex) {
+			// 今から書き込む頂点の先頭番号
+			uint32_t start = (latIndex * kSphereSubdivision + lonIndex) * 6;
 
-	vertexData[5].position = { 0.5f, -0.5f, -0.5f, 1.0f };
-	vertexData[5].texcoord = { 1.0f, 1.0f };
+			// 経度
+			float lon = kLonEvery * float(lonIndex);
+
+			// 基準点a
+			Vector4 a = {
+				std::cos(lat) * std::cos(lon),
+				std::sin(lat),
+				std::cos(lat) * std::sin(lon),
+				1.0f
+			};
+
+			// 基準点b
+			Vector4 b = {
+				std::cos(lat + kLatEvery) * std::cos(lon),
+				std::sin(lat + kLatEvery),
+				std::cos(lat + kLatEvery) * std::sin(lon),
+				1.0f
+			};
+
+			// 基準点c
+			Vector4 c = {
+				std::cos(lat) * std::cos(lon + kLonEvery),
+				std::sin(lat),
+				std::cos(lat) * std::sin(lon + kLonEvery),
+				1.0f
+			};
+
+			// 基準点d
+			Vector4 d = {
+				std::cos(lat + kLatEvery) * std::cos(lon + kLonEvery),
+				std::sin(lat + kLatEvery),
+				std::cos(lat + kLatEvery) * std::sin(lon + kLonEvery),
+				1.0f
+			};
+
+			// Texture用のUV座標を計算する
+			float u = float(lonIndex) / float(kSphereSubdivision);
+			float v = 1.0f - float(latIndex) / float(kSphereSubdivision);
+			float nextU = float(lonIndex + 1) / float(kSphereSubdivision);
+			float nextV = 1.0f - float(latIndex + 1) / float(kSphereSubdivision);
+
+			// 1枚目の三角形 a, b, c
+			vertexData[start + 0].position = a;
+			vertexData[start + 0].texcoord = { u, v };
+
+			vertexData[start + 1].position = b;
+			vertexData[start + 1].texcoord = { u, nextV };
+
+			vertexData[start + 2].position = c;
+			vertexData[start + 2].texcoord = { nextU, v };
+
+			// 2枚目の三角形 c, b, d
+			vertexData[start + 3].position = c;
+			vertexData[start + 3].texcoord = { nextU, v };
+
+			vertexData[start + 4].position = b;
+			vertexData[start + 4].texcoord = { u, nextV };
+
+			vertexData[start + 5].position = d;
+			vertexData[start + 5].texcoord = { nextU, nextV };
+		}
+	}
 
 	// 頂点バッファビューを作成する
 	vertexBufferView_.BufferLocation = vertexResource_->GetGPUVirtualAddress();
-	vertexBufferView_.SizeInBytes = sizeof(VertexData) * 6;
+	vertexBufferView_.SizeInBytes = static_cast<UINT>(sizeof(VertexData) * kSphereVertexCount);
 	vertexBufferView_.StrideInBytes = sizeof(VertexData);
 
-	Log("Complete create VertexResource!!!\n");
+	Log("Complete create Sphere VertexResource!!!\n");
 
 	return true;
 }
@@ -1698,7 +1767,7 @@ void DXCommon::UpdateTransformationMatrix() {
 		return;
 	}
 
-	// Y軸回転で三角形を動かす
+	// Y軸回転で球を動かす
 	transform_.rotate.y += 0.03f;
 
 	// オブジェクトのWorldMatrixを作成する

@@ -5,6 +5,7 @@
 #include <dxgi1_6.h>
 #include <dxcapi.h>
 
+#include <cstdint>
 #include <cstddef>
 #include <string>
 
@@ -34,11 +35,19 @@ private:
 	};
 
 private:
+
 	static constexpr UINT kBackBufferCount = 2;
 	static constexpr UINT kSRVDescriptorCount = 128;
 	static constexpr UINT kDSVDescriptorCount = 1;
 	static constexpr UINT kImGuiSRVIndex = 0;
 	static constexpr UINT kTextureSRVIndex = 1;
+
+	// 球の分割数。数を増やすほどなめらかになる
+	static constexpr uint32_t kSphereSubdivision = 16;
+
+	// 球は1つの四角形を三角形2枚で作るので、1マスあたり6頂点になる
+	static constexpr uint32_t kSphereVertexCount =
+		kSphereSubdivision * kSphereSubdivision * 6;
 
 private:
 	void EnableDebugLayer();
@@ -160,7 +169,7 @@ private:
 	Transform cameraTransform_ = {
 		{ 1.0f, 1.0f, 1.0f },
 		{ 0.0f, 0.0f, 0.0f },
-		{ 0.0f, 0.0f, -5.0f },
+		{ 0.0f, 0.0f, -10.0f },
 	};
 
 	D3D12_VIEWPORT viewport_ = {};
