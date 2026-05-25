@@ -63,6 +63,21 @@ bool DXCommon::Initialize(HWND hwnd) {
 		return false;
 	}
 
+	// DepthStencil用のDescriptorHeapを作成する
+	if (!CreateDSVDescriptorHeap()) {
+		return false;
+	}
+
+	// DepthStencil用のResourceを作成する
+	if (!CreateDepthStencilResource()) {
+		return false;
+	}
+
+	// DepthStencilResourceに対してDSVを作成する
+	if (!CreateDSV()) {
+		return false;
+	}
+
 	// GPU処理の完了を待つためのFenceを作成する
 	if (!CreateFence()) {
 		return false;
@@ -251,6 +266,16 @@ void DXCommon::Finalize() {
 		fence_ = nullptr;
 	}
 
+	if (depthStencilResource_ != nullptr) {
+		depthStencilResource_->Release();
+		depthStencilResource_ = nullptr;
+	}
+
+	if (dsvDescriptorHeap_ != nullptr) {
+		dsvDescriptorHeap_->Release();
+		dsvDescriptorHeap_ = nullptr;
+	}
+
 	if (srvDescriptorHeap_ != nullptr) {
 		srvDescriptorHeap_->Release();
 		srvDescriptorHeap_ = nullptr;
@@ -330,12 +355,26 @@ void DXCommon::Draw() {
 
 	commandList_->ResourceBarrier(1, &barrier);
 
-	// これから描画するRTVを設定する
-	commandList_->OMSetRenderTargets(1, &rtvHandles_[backBufferIndex], false, nullptr);
+	// DSV用DescriptorHeapの先頭ハンドルを取得する
+	D3D12_CPU_DESCRIPTOR_HANDLE dsvHandle =
+		dsvDescriptorHeap_->GetCPUDescriptorHandleForHeapStart();
+
+	// これから描画するRTVとDSVを設定する
+	commandList_->OMSetRenderTargets(1, &rtvHandles_[backBufferIndex], false, &dsvHandle);
 
 	// 指定した色で画面全体をクリアする
 	const float clearColor[] = { 0.1f, 0.25f, 0.5f, 1.0f };
 	commandList_->ClearRenderTargetView(rtvHandles_[backBufferIndex], clearColor, 0, nullptr);
+
+	// 深度値を一番奥の1.0fでクリアする
+	commandList_->ClearDepthStencilView(
+		dsvHandle,
+		D3D12_CLEAR_FLAG_DEPTH,
+		1.0f,
+		0,
+		0,
+		nullptr
+	);
 
 	// 描画範囲を設定する
 	commandList_->RSSetViewports(1, &viewport_);
@@ -375,7 +414,7 @@ void DXCommon::Draw() {
 	commandList_->SetGraphicsRootDescriptorTable(2, textureManager_.GetTextureSrvHandleGPU());
 
 	// 実際に描画命令を積む
-	commandList_->DrawInstanced(3, 1, 0, 0);
+	commandList_->DrawInstanced(6, 1, 0, 0);
 
 	// 最後にImGuiを描画して画面の前面に表示する
 	debugGui_.Render(commandList_);
@@ -623,6 +662,23 @@ bool DXCommon::CreateSRVDescriptorHeap() {
 	return true;
 }
 
+bool DXCommon::CreateDSVDescriptorHeap() {
+	// DSV用のDescriptorHeapを作成する
+	dsvDescriptorHeap_ = CreateDescriptorHeap(
+		D3D12_DESCRIPTOR_HEAP_TYPE_DSV,
+		kDSVDescriptorCount,
+		false
+	);
+
+	if (dsvDescriptorHeap_ == nullptr) {
+		return false;
+	}
+
+	Log("Complete create DSV DescriptorHeap!!!\n");
+
+	return true;
+}
+
 bool DXCommon::GetSwapChainResources() {
 	// SwapChainが持っているBackBufferのResourceを取得する
 	for (UINT i = 0; i < kBackBufferCount; ++i) {
@@ -635,6 +691,28 @@ bool DXCommon::GetSwapChainResources() {
 	}
 
 	Log("Complete get SwapChain Resources!!!\n");
+	return true;
+}
+
+bool DXCommon::CreateDSV() {
+	if (depthStencilResource_ == nullptr || dsvDescriptorHeap_ == nullptr) {
+		return false;
+	}
+
+	// DSVの設定
+	D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc{};
+	dsvDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+	dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+
+	// DSVHeapの先頭にDSVを作る
+	device_->CreateDepthStencilView(
+		depthStencilResource_,
+		&dsvDesc,
+		dsvDescriptorHeap_->GetCPUDescriptorHandleForHeapStart()
+	);
+
+	Log("Complete create DSV!!!\n");
+
 	return true;
 }
 
@@ -661,6 +739,48 @@ bool DXCommon::CreateRTV() {
 	return true;
 }
 
+bool DXCommon::CreateDepthStencilResource() {
+	// DepthStencilとして使うTextureResourceの設定
+	D3D12_RESOURCE_DESC resourceDesc{};
+	resourceDesc.Width = WinConfig::kClientWidth;
+	resourceDesc.Height = WinConfig::kClientHeight;
+	resourceDesc.MipLevels = 1;
+	resourceDesc.DepthOrArraySize = 1;
+	resourceDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+	resourceDesc.SampleDesc.Count = 1;
+	resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+	resourceDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+
+	// GPU側のVRAMに配置する
+	D3D12_HEAP_PROPERTIES heapProperties{};
+	heapProperties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+	// 深度値のクリア最適値を設定する
+	D3D12_CLEAR_VALUE depthClearValue{};
+	depthClearValue.DepthStencil.Depth = 1.0f;
+	depthClearValue.DepthStencil.Stencil = 0;
+	depthClearValue.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+
+	// DepthStencilResourceを生成する
+	HRESULT hr = device_->CreateCommittedResource(
+		&heapProperties,
+		D3D12_HEAP_FLAG_NONE,
+		&resourceDesc,
+		D3D12_RESOURCE_STATE_DEPTH_WRITE,
+		&depthClearValue,
+		IID_PPV_ARGS(&depthStencilResource_)
+	);
+	assert(SUCCEEDED(hr));
+
+	if (FAILED(hr)) {
+		return false;
+	}
+
+	Log("Complete create DepthStencilResource!!!\n");
+
+	return true;
+}
+
 bool DXCommon::CreateFence() {
 	// GPUの処理完了をCPU側で確認するためのFenceを作成する
 	fenceValue_ = 0;
@@ -677,7 +797,6 @@ bool DXCommon::CreateFence() {
 	}
 
 	// Fenceの完了通知を受け取るためのWindowsイベントを作成する
-	// GPUの処理が終わるまでCPUを待機させるときに使う
 	fenceEvent_ = CreateEvent(nullptr, false, false, nullptr);
 	assert(fenceEvent_ != nullptr);
 
@@ -892,6 +1011,7 @@ bool DXCommon::CreateGraphicsPipelineState() {
 	// DXCを初期化する
 	IDxcUtils* dxcUtils = nullptr;
 	IDxcCompiler3* dxcCompiler = nullptr;
+	IDxcIncludeHandler* includeHandler = nullptr;
 
 	HRESULT hr = DxcCreateInstance(CLSID_DxcUtils, IID_PPV_ARGS(&dxcUtils));
 	assert(SUCCEEDED(hr));
@@ -909,8 +1029,6 @@ bool DXCommon::CreateGraphicsPipelineState() {
 		return false;
 	}
 
-	// includeに対応するための設定を作る
-	IDxcIncludeHandler* includeHandler = nullptr;
 	hr = dxcUtils->CreateDefaultIncludeHandler(&includeHandler);
 	assert(SUCCEEDED(hr));
 
@@ -924,7 +1042,7 @@ bool DXCommon::CreateGraphicsPipelineState() {
 		return false;
 	}
 
-	// ShaderをCompileする
+	// Shaderをコンパイルする
 	IDxcBlob* vertexShaderBlob = CompileShader(
 		L"Object3d.VS.hlsl",
 		L"vs_6_0",
@@ -933,6 +1051,19 @@ bool DXCommon::CreateGraphicsPipelineState() {
 		includeHandler
 	);
 	assert(vertexShaderBlob != nullptr);
+
+	if (vertexShaderBlob == nullptr) {
+		includeHandler->Release();
+		includeHandler = nullptr;
+
+		dxcCompiler->Release();
+		dxcCompiler = nullptr;
+
+		dxcUtils->Release();
+		dxcUtils = nullptr;
+
+		return false;
+	}
 
 	IDxcBlob* pixelShaderBlob = CompileShader(
 		L"Object3d.PS.hlsl",
@@ -943,16 +1074,9 @@ bool DXCommon::CreateGraphicsPipelineState() {
 	);
 	assert(pixelShaderBlob != nullptr);
 
-	if (vertexShaderBlob == nullptr || pixelShaderBlob == nullptr) {
-		if (pixelShaderBlob != nullptr) {
-			pixelShaderBlob->Release();
-			pixelShaderBlob = nullptr;
-		}
-
-		if (vertexShaderBlob != nullptr) {
-			vertexShaderBlob->Release();
-			vertexShaderBlob = nullptr;
-		}
+	if (pixelShaderBlob == nullptr) {
+		vertexShaderBlob->Release();
+		vertexShaderBlob = nullptr;
 
 		includeHandler->Release();
 		includeHandler = nullptr;
@@ -966,32 +1090,30 @@ bool DXCommon::CreateGraphicsPipelineState() {
 		return false;
 	}
 
-	// RootSignatureを作成する
+	// RootSignature作成
 	D3D12_ROOT_SIGNATURE_DESC descriptionRootSignature{};
 	descriptionRootSignature.Flags =
 		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
-	// RootParameter作成。PixelShaderのMaterial、VertexShaderのTransform、Texture用SRV
-	D3D12_ROOT_PARAMETER rootParameters[3] = {};
-
-	// PixelShaderで使うMaterial用CBuffer
-	rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-	rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-	rootParameters[0].Descriptor.ShaderRegister = 0;
-
-	// VertexShaderで使う座標変換用CBuffer
-	rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-	rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
-	rootParameters[1].Descriptor.ShaderRegister = 0;
-
-	// PixelShaderでTextureを読むためのDescriptorRange
+	// Texture用のDescriptorRangeを作成する
 	D3D12_DESCRIPTOR_RANGE descriptorRange[1] = {};
 	descriptorRange[0].BaseShaderRegister = 0;
 	descriptorRange[0].NumDescriptors = 1;
 	descriptorRange[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-	descriptorRange[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+	descriptorRange[0].OffsetInDescriptorsFromTableStart =
+		D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-	// PixelShaderで使うTexture用DescriptorTable
+	// RootParameter作成。PixelShaderのMaterial、VertexShaderのTransform、PixelShaderのTexture
+	D3D12_ROOT_PARAMETER rootParameters[3] = {};
+
+	rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	rootParameters[0].Descriptor.ShaderRegister = 0;
+
+	rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+	rootParameters[1].Descriptor.ShaderRegister = 0;
+
 	rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
 	rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 	rootParameters[2].DescriptorTable.pDescriptorRanges = descriptorRange;
@@ -1000,7 +1122,7 @@ bool DXCommon::CreateGraphicsPipelineState() {
 	descriptionRootSignature.pParameters = rootParameters;
 	descriptionRootSignature.NumParameters = _countof(rootParameters);
 
-	// TextureをSamplingするためのSamplerを設定する
+	// Samplerの設定
 	D3D12_STATIC_SAMPLER_DESC staticSamplers[1] = {};
 	staticSamplers[0].Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
 	staticSamplers[0].AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
@@ -1014,7 +1136,7 @@ bool DXCommon::CreateGraphicsPipelineState() {
 	descriptionRootSignature.pStaticSamplers = staticSamplers;
 	descriptionRootSignature.NumStaticSamplers = _countof(staticSamplers);
 
-	// RootSignatureをシリアライズしてバイナリにする
+	// シリアライズしてバイナリにする
 	ID3DBlob* signatureBlob = nullptr;
 	ID3DBlob* errorBlob = nullptr;
 
@@ -1028,6 +1150,123 @@ bool DXCommon::CreateGraphicsPipelineState() {
 	if (FAILED(hr)) {
 		if (errorBlob != nullptr) {
 			Log(reinterpret_cast<char*>(errorBlob->GetBufferPointer()));
+			errorBlob->Release();
+			errorBlob = nullptr;
+		}
+
+		assert(false);
+		return false;
+	}
+
+	// バイナリを元に生成
+	hr = device_->CreateRootSignature(
+		0,
+		signatureBlob->GetBufferPointer(),
+		signatureBlob->GetBufferSize(),
+		IID_PPV_ARGS(&rootSignature_)
+	);
+	assert(SUCCEEDED(hr));
+
+	if (FAILED(hr)) {
+		signatureBlob->Release();
+		signatureBlob = nullptr;
+
+		if (errorBlob != nullptr) {
+			errorBlob->Release();
+			errorBlob = nullptr;
+		}
+
+		return false;
+	}
+
+	// InputLayoutの設定
+	D3D12_INPUT_ELEMENT_DESC inputElementDescs[2] = {};
+
+	inputElementDescs[0].SemanticName = "POSITION";
+	inputElementDescs[0].SemanticIndex = 0;
+	inputElementDescs[0].Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+	inputElementDescs[0].AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT;
+
+	inputElementDescs[1].SemanticName = "TEXCOORD";
+	inputElementDescs[1].SemanticIndex = 0;
+	inputElementDescs[1].Format = DXGI_FORMAT_R32G32_FLOAT;
+	inputElementDescs[1].AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT;
+
+	D3D12_INPUT_LAYOUT_DESC inputLayoutDesc{};
+	inputLayoutDesc.pInputElementDescs = inputElementDescs;
+	inputLayoutDesc.NumElements = _countof(inputElementDescs);
+
+	// BlendStateの設定
+	D3D12_BLEND_DESC blendDesc{};
+
+	// すべての色要素を書き込む
+	blendDesc.RenderTarget[0].RenderTargetWriteMask =
+		D3D12_COLOR_WRITE_ENABLE_ALL;
+
+	// RasterizerStateの設定
+	D3D12_RASTERIZER_DESC rasterizerDesc{};
+
+	// 裏面を表示しない
+	rasterizerDesc.CullMode = D3D12_CULL_MODE_BACK;
+
+	// 三角形の中を塗りつぶす
+	rasterizerDesc.FillMode = D3D12_FILL_MODE_SOLID;
+
+	// DepthStencilStateの設定
+	D3D12_DEPTH_STENCIL_DESC depthStencilDesc{};
+
+	// Depthの機能を有効にする
+	depthStencilDesc.DepthEnable = true;
+
+	// 書き込みします
+	depthStencilDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+
+	// 比較関数はLessEqual。つまり、近ければ描画される
+	depthStencilDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+
+	// PSOを生成する
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC graphicsPipelineStateDesc{};
+	graphicsPipelineStateDesc.pRootSignature = rootSignature_;
+	graphicsPipelineStateDesc.InputLayout = inputLayoutDesc;
+	graphicsPipelineStateDesc.VS = {
+		vertexShaderBlob->GetBufferPointer(),
+		vertexShaderBlob->GetBufferSize()
+	};
+	graphicsPipelineStateDesc.PS = {
+		pixelShaderBlob->GetBufferPointer(),
+		pixelShaderBlob->GetBufferSize()
+	};
+	graphicsPipelineStateDesc.BlendState = blendDesc;
+	graphicsPipelineStateDesc.RasterizerState = rasterizerDesc;
+
+	// DepthStencilをPSOへ設定する
+	graphicsPipelineStateDesc.DepthStencilState = depthStencilDesc;
+	graphicsPipelineStateDesc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
+
+	// 書き込むRTVの情報
+	graphicsPipelineStateDesc.NumRenderTargets = 1;
+	graphicsPipelineStateDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+
+	// 利用するトポロジのタイプ。今回は三角形
+	graphicsPipelineStateDesc.PrimitiveTopologyType =
+		D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+
+	// どのように画面に色を打ち込むかの設定
+	graphicsPipelineStateDesc.SampleDesc.Count = 1;
+	graphicsPipelineStateDesc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
+
+	// 実際に生成
+	hr = device_->CreateGraphicsPipelineState(
+		&graphicsPipelineStateDesc,
+		IID_PPV_ARGS(&graphicsPipelineState_)
+	);
+	assert(SUCCEEDED(hr));
+
+	if (FAILED(hr)) {
+		signatureBlob->Release();
+		signatureBlob = nullptr;
+
+		if (errorBlob != nullptr) {
 			errorBlob->Release();
 			errorBlob = nullptr;
 		}
@@ -1047,19 +1286,10 @@ bool DXCommon::CreateGraphicsPipelineState() {
 		dxcUtils->Release();
 		dxcUtils = nullptr;
 
-		assert(false);
 		return false;
 	}
 
-	// バイナリを元にRootSignatureを生成する
-	hr = device_->CreateRootSignature(
-		0,
-		signatureBlob->GetBufferPointer(),
-		signatureBlob->GetBufferSize(),
-		IID_PPV_ARGS(&rootSignature_)
-	);
-	assert(SUCCEEDED(hr));
-
+	// もう使わないResourceを解放
 	signatureBlob->Release();
 	signatureBlob = nullptr;
 
@@ -1068,94 +1298,11 @@ bool DXCommon::CreateGraphicsPipelineState() {
 		errorBlob = nullptr;
 	}
 
-	if (FAILED(hr)) {
-		vertexShaderBlob->Release();
-		vertexShaderBlob = nullptr;
-
-		pixelShaderBlob->Release();
-		pixelShaderBlob = nullptr;
-
-		includeHandler->Release();
-		includeHandler = nullptr;
-
-		dxcCompiler->Release();
-		dxcCompiler = nullptr;
-
-		dxcUtils->Release();
-		dxcUtils = nullptr;
-
-		return false;
-	}
-
-	// InputLayoutを設定する
-	D3D12_INPUT_ELEMENT_DESC inputElementDescs[2] = {};
-	inputElementDescs[0].SemanticName = "POSITION";
-	inputElementDescs[0].SemanticIndex = 0;
-	inputElementDescs[0].Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
-	inputElementDescs[0].InputSlot = 0;
-	inputElementDescs[0].AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT;
-	inputElementDescs[0].InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
-	inputElementDescs[0].InstanceDataStepRate = 0;
-	inputElementDescs[1].SemanticName = "TEXCOORD";
-	inputElementDescs[1].SemanticIndex = 0;
-	inputElementDescs[1].Format = DXGI_FORMAT_R32G32_FLOAT;
-	inputElementDescs[1].InputSlot = 0;
-	inputElementDescs[1].AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT;
-	inputElementDescs[1].InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
-	inputElementDescs[1].InstanceDataStepRate = 0;
-
-	D3D12_INPUT_LAYOUT_DESC inputLayoutDesc{};
-	inputLayoutDesc.pInputElementDescs = inputElementDescs;
-	inputLayoutDesc.NumElements = _countof(inputElementDescs);
-
-	// BlendStateを設定する
-	D3D12_BLEND_DESC blendDesc{};
-	blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
-
-	// RasterizerStateを設定する
-	D3D12_RASTERIZER_DESC rasterizerDesc{};
-	rasterizerDesc.CullMode = D3D12_CULL_MODE_BACK;
-	rasterizerDesc.FillMode = D3D12_FILL_MODE_SOLID;
-
-	// GraphicsPipelineStateを設定する
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC graphicsPipelineStateDesc{};
-	graphicsPipelineStateDesc.pRootSignature = rootSignature_;
-	graphicsPipelineStateDesc.InputLayout = inputLayoutDesc;
-	graphicsPipelineStateDesc.VS = {
-		vertexShaderBlob->GetBufferPointer(),
-		vertexShaderBlob->GetBufferSize()
-	};
-	graphicsPipelineStateDesc.PS = {
-		pixelShaderBlob->GetBufferPointer(),
-		pixelShaderBlob->GetBufferSize()
-	};
-	graphicsPipelineStateDesc.BlendState = blendDesc;
-	graphicsPipelineStateDesc.RasterizerState = rasterizerDesc;
-
-	// 書き込むRTVの情報
-	graphicsPipelineStateDesc.NumRenderTargets = 1;
-	graphicsPipelineStateDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
-
-	// 利用するトポロジーのタイプ
-	graphicsPipelineStateDesc.PrimitiveTopologyType =
-		D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-
-	// サンプリング設定
-	graphicsPipelineStateDesc.SampleDesc.Count = 1;
-	graphicsPipelineStateDesc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
-
-	// 実際にPSOを生成する
-	hr = device_->CreateGraphicsPipelineState(
-		&graphicsPipelineStateDesc,
-		IID_PPV_ARGS(&graphicsPipelineState_)
-	);
-	assert(SUCCEEDED(hr));
+	vertexShaderBlob->Release();
+	vertexShaderBlob = nullptr;
 
 	pixelShaderBlob->Release();
 	pixelShaderBlob = nullptr;
-
-	vertexShaderBlob->Release();
-	vertexShaderBlob = nullptr;
 
 	includeHandler->Release();
 	includeHandler = nullptr;
@@ -1166,11 +1313,8 @@ bool DXCommon::CreateGraphicsPipelineState() {
 	dxcUtils->Release();
 	dxcUtils = nullptr;
 
-	if (FAILED(hr)) {
-		return false;
-	}
-
 	Log("Complete create GraphicsPipelineState!!!\n");
+
 	return true;
 }
 
@@ -1250,8 +1394,8 @@ ID3D12Resource* DXCommon::CreateBufferResource(size_t sizeInBytes) {
 }
 
 bool DXCommon::CreateVertexResource() {
-	// 三角形の頂点Resourceを作成する
-	vertexResource_ = CreateBufferResource(sizeof(VertexData) * 3);
+	// 三角形2枚分の頂点Resourceを作成する
+	vertexResource_ = CreateBufferResource(sizeof(VertexData) * 6);
 	assert(vertexResource_ != nullptr);
 
 	if (vertexResource_ == nullptr) {
@@ -1262,35 +1406,46 @@ bool DXCommon::CreateVertexResource() {
 	VertexData* vertexData = nullptr;
 
 	// 書き込み用のアドレスを取得する
-	HRESULT hr = vertexResource_->Map(0, nullptr, reinterpret_cast<void**>(&vertexData));
+	HRESULT hr = vertexResource_->Map(
+		0,
+		nullptr,
+		reinterpret_cast<void**>(&vertexData)
+	);
 	assert(SUCCEEDED(hr));
 
 	if (FAILED(hr)) {
 		return false;
 	}
 
-	// 左下
+	// 1枚目の三角形
 	vertexData[0].position = { -0.5f, -0.5f, 0.0f, 1.0f };
 	vertexData[0].texcoord = { 0.0f, 1.0f };
 
-	// 上
 	vertexData[1].position = { 0.0f, 0.5f, 0.0f, 1.0f };
 	vertexData[1].texcoord = { 0.5f, 0.0f };
 
-	// 右下
 	vertexData[2].position = { 0.5f, -0.5f, 0.0f, 1.0f };
 	vertexData[2].texcoord = { 1.0f, 1.0f };
 
+	// 2枚目の三角形
+	vertexData[3].position = { -0.5f, -0.5f, 0.5f, 1.0f };
+	vertexData[3].texcoord = { 0.0f, 1.0f };
+
+	vertexData[4].position = { 0.0f, 0.0f, 0.0f, 1.0f };
+	vertexData[4].texcoord = { 0.5f, 0.0f };
+
+	vertexData[5].position = { 0.5f, -0.5f, -0.5f, 1.0f };
+	vertexData[5].texcoord = { 1.0f, 1.0f };
+
 	// 頂点バッファビューを作成する
 	vertexBufferView_.BufferLocation = vertexResource_->GetGPUVirtualAddress();
-	vertexBufferView_.SizeInBytes = sizeof(VertexData) * 3;
+	vertexBufferView_.SizeInBytes = sizeof(VertexData) * 6;
 	vertexBufferView_.StrideInBytes = sizeof(VertexData);
 
 	Log("Complete create VertexResource!!!\n");
 
 	return true;
 }
-
 bool DXCommon::CreateMaterialResource() {
 	// マテリアル用のResourceを作成する
 	materialResource_ = CreateBufferResource(sizeof(Material));

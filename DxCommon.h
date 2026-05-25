@@ -20,7 +20,6 @@ public:
 	void Draw();
 
 private:
-	
 	struct Material {
 		Vector4 color;
 	};
@@ -37,6 +36,7 @@ private:
 private:
 	static constexpr UINT kBackBufferCount = 2;
 	static constexpr UINT kSRVDescriptorCount = 128;
+	static constexpr UINT kDSVDescriptorCount = 1;
 	static constexpr UINT kImGuiSRVIndex = 0;
 	static constexpr UINT kTextureSRVIndex = 1;
 
@@ -53,8 +53,11 @@ private:
 	bool CreateSwapChain(HWND hwnd);
 	bool CreateRTVDescriptorHeap();
 	bool CreateSRVDescriptorHeap();
+	bool CreateDSVDescriptorHeap();
 	bool GetSwapChainResources();
 	bool CreateRTV();
+	bool CreateDepthStencilResource();
+	bool CreateDSV();
 	bool CreateFence();
 	bool CreateTexture();
 	bool CreateDebugGui(HWND hwnd);
@@ -81,7 +84,6 @@ private:
 		IDxcIncludeHandler* includeHandler
 	);
 
-
 	void UpdateTransformationMatrix();
 
 	void WaitForGpu();
@@ -104,6 +106,9 @@ private:
 
 	ID3D12DescriptorHeap* srvDescriptorHeap_ = nullptr;
 	UINT srvDescriptorSize_ = 0;
+
+	ID3D12DescriptorHeap* dsvDescriptorHeap_ = nullptr;
+	ID3D12Resource* depthStencilResource_ = nullptr;
 
 	ID3D12Fence* fence_ = nullptr;
 	UINT64 fenceValue_ = 0;
