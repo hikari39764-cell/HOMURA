@@ -7,6 +7,10 @@
 #include <dxgidebug.h>
 #include <dxcapi.h>
 
+#ifdef USE_IMGUI
+#include "externals/imgui/imgui.h"
+#endif
+
 #pragma comment(lib, "d3d12.lib")
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "dxguid.lib")
@@ -108,13 +112,28 @@ bool DXCommon::Initialize(HWND hwnd) {
 		return false;
 	}
 
+	// Sprite用の頂点Resourceを作成する
+	if (!CreateSpriteResource()) {
+		return false;
+	}
+
 	// マテリアル用のResourceを作成する
 	if (!CreateMaterialResource()) {
 		return false;
 	}
 
+	// Sprite用のマテリアルResourceを作成する
+	if (!CreateMaterialResourceSprite()) {
+		return false;
+	}
+
 	// 座標変換用のResourceを作成する
 	if (!CreateTransformationMatrixResource()) {
+		return false;
+	}
+
+	// Sprite用の座標変換Resourceを作成する
+	if (!CreateSpriteTransformationMatrixResource()) {
 		return false;
 	}
 
@@ -236,9 +255,27 @@ void DXCommon::Finalize() {
 		transformationMatrixData_ = nullptr;
 	}
 
+	if (transformationMatrixResourceSprite_ != nullptr) {
+		transformationMatrixResourceSprite_->Release();
+		transformationMatrixResourceSprite_ = nullptr;
+		transformationMatrixDataSprite_ = nullptr;
+	}
+
+	if (materialResourceSprite_ != nullptr) {
+		materialResourceSprite_->Release();
+		materialResourceSprite_ = nullptr;
+		materialDataSprite_ = nullptr;
+	}
+
 	if (materialResource_ != nullptr) {
 		materialResource_->Release();
 		materialResource_ = nullptr;
+		materialData_ = nullptr;
+	}
+
+	if (vertexResourceSprite_ != nullptr) {
+		vertexResourceSprite_->Release();
+		vertexResourceSprite_ = nullptr;
 	}
 
 	if (vertexResource_ != nullptr) {
@@ -383,9 +420,30 @@ void DXCommon::Draw() {
 	// 座標変換行列を更新する
 	UpdateTransformationMatrix();
 
+	// Sprite用の座標変換行列を更新する
+	UpdateSpriteTransformationMatrix();
+
 	// ImGuiのフレームを開始して開発用UIを作る
 	debugGui_.BeginFrame();
+
+#ifdef USE_IMGUI
+	if (materialData_ != nullptr) {
+		ImGui::Begin("Settings");
+		if (materialData_ != nullptr) {
+			ImGui::ColorEdit4("triangle material", &materialData_->color.x);
+		}
+
+		if (materialDataSprite_ != nullptr) {
+			ImGui::ColorEdit4("sprite material", &materialDataSprite_->color.x);
+		}
+		ImGui::DragFloat3("translateSprite", &transformSprite_.translate.x, 1.0f);
+		ImGui::DragFloat3("scaleSprite", &transformSprite_.scale.x, 0.01f);
+		ImGui::End();
+	}
+#else
 	debugGui_.ShowDemoWindow();
+#endif
+
 	debugGui_.EndFrame();
 
 	// Shaderと描画設定をまとめたPipelineStateを設定する
@@ -414,6 +472,20 @@ void DXCommon::Draw() {
 	commandList_->SetGraphicsRootDescriptorTable(2, textureManager_.GetTextureSrvHandleGPU());
 
 	// 実際に描画命令を積む
+	commandList_->DrawInstanced(6, 1, 0, 0);
+
+	// Spriteの描画
+	commandList_->IASetVertexBuffers(0, 1, &vertexBufferViewSprite_);
+
+	// Sprite用のTransformationMatrixCBufferの場所を設定する
+	commandList_->SetGraphicsRootConstantBufferView(
+		1,
+		transformationMatrixResourceSprite_->GetGPUVirtualAddress()
+	);
+	// Sprite用のマテリアルCBufferの場所を設定する
+	commandList_->SetGraphicsRootConstantBufferView(0, materialResourceSprite_->GetGPUVirtualAddress());
+
+	// 実際にSpriteの描画命令を積む
 	commandList_->DrawInstanced(6, 1, 0, 0);
 
 	// 最後にImGuiを描画して画面の前面に表示する
@@ -1446,6 +1518,61 @@ bool DXCommon::CreateVertexResource() {
 
 	return true;
 }
+
+bool DXCommon::CreateSpriteResource() {
+	// Sprite用の頂点Resourceを作成する。矩形なので三角形2枚分の6頂点を用意する
+	vertexResourceSprite_ = CreateBufferResource(sizeof(VertexData) * 6);
+	assert(vertexResourceSprite_ != nullptr);
+
+	if (vertexResourceSprite_ == nullptr) {
+		return false;
+	}
+
+	// Sprite用の頂点Resourceにデータを書き込む
+	VertexData* vertexDataSprite = nullptr;
+
+	// 書き込み用のアドレスを取得する
+	HRESULT hr = vertexResourceSprite_->Map(
+		0,
+		nullptr,
+		reinterpret_cast<void**>(&vertexDataSprite)
+	);
+	assert(SUCCEEDED(hr));
+
+	if (FAILED(hr)) {
+		return false;
+	}
+
+	// 1枚目の三角形
+	vertexDataSprite[0].position = { 0.0f, 360.0f, 0.0f, 1.0f };		// 左下
+	vertexDataSprite[0].texcoord = { 0.0f, 1.0f };
+
+	vertexDataSprite[1].position = { 0.0f, 0.0f, 0.0f, 1.0f };		// 左上
+	vertexDataSprite[1].texcoord = { 0.0f, 0.0f };
+
+	vertexDataSprite[2].position = { 640.0f, 360.0f, 0.0f, 1.0f };	// 右下
+	vertexDataSprite[2].texcoord = { 1.0f, 1.0f };
+
+	// 2枚目の三角形
+	vertexDataSprite[3].position = { 0.0f, 0.0f, 0.0f, 1.0f };		// 左上
+	vertexDataSprite[3].texcoord = { 0.0f, 0.0f };
+
+	vertexDataSprite[4].position = { 640.0f, 0.0f, 0.0f, 1.0f };		// 右上
+	vertexDataSprite[4].texcoord = { 1.0f, 0.0f };
+
+	vertexDataSprite[5].position = { 640.0f, 360.0f, 0.0f, 1.0f };	// 右下
+	vertexDataSprite[5].texcoord = { 1.0f, 1.0f };
+
+	// Sprite用の頂点バッファビューを作成する
+	vertexBufferViewSprite_.BufferLocation = vertexResourceSprite_->GetGPUVirtualAddress();
+	vertexBufferViewSprite_.SizeInBytes = sizeof(VertexData) * 6;
+	vertexBufferViewSprite_.StrideInBytes = sizeof(VertexData);
+
+	Log("Complete create Sprite VertexResource!!!\n");
+
+	return true;
+}
+
 bool DXCommon::CreateMaterialResource() {
 	// マテリアル用のResourceを作成する
 	materialResource_ = CreateBufferResource(sizeof(Material));
@@ -1456,10 +1583,10 @@ bool DXCommon::CreateMaterialResource() {
 	}
 
 	// マテリアルResourceにデータを書き込む
-	Material* materialData = nullptr;
+	materialData_ = nullptr;
 
 	// 書き込み用のアドレスを取得する
-	HRESULT hr = materialResource_->Map(0, nullptr, reinterpret_cast<void**>(&materialData));
+	HRESULT hr = materialResource_->Map(0, nullptr, reinterpret_cast<void**>(&materialData_));
 	assert(SUCCEEDED(hr));
 
 	if (FAILED(hr)) {
@@ -1467,9 +1594,37 @@ bool DXCommon::CreateMaterialResource() {
 	}
 
 	// Textureの色をそのまま見やすくするため白色を設定する
-	materialData->color = { 1.0f, 1.0f, 1.0f, 1.0f };
+	materialData_->color = { 1.0f, 1.0f, 1.0f, 1.0f };
 
 	Log("Complete create MaterialResource!!!\n");
+
+	return true;
+}
+
+bool DXCommon::CreateMaterialResourceSprite() {
+	// Sprite用のマテリアルResourceを作成する
+	materialResourceSprite_ = CreateBufferResource(sizeof(Material));
+	assert(materialResourceSprite_ != nullptr);
+
+	if (materialResourceSprite_ == nullptr) {
+		return false;
+	}
+
+	// Sprite用のマテリアルResourceにデータを書き込む
+	materialDataSprite_ = nullptr;
+
+	// 書き込み用のアドレスを取得する
+	HRESULT hr = materialResourceSprite_->Map(0, nullptr, reinterpret_cast<void**>(&materialDataSprite_));
+	assert(SUCCEEDED(hr));
+
+	if (FAILED(hr)) {
+		return false;
+	}
+
+	// SpriteもTextureの色をそのまま見やすくするため白色を設定する
+	materialDataSprite_->color = { 1.0f, 1.0f, 1.0f, 1.0f };
+
+	Log("Complete create Sprite MaterialResource!!!\n");
 
 	return true;
 }
@@ -1506,12 +1661,44 @@ bool DXCommon::CreateTransformationMatrixResource() {
 	return true;
 }
 
+bool DXCommon::CreateSpriteTransformationMatrixResource() {
+	// Sprite用の座標変換Resourceを作成する
+	transformationMatrixResourceSprite_ = CreateBufferResource(sizeof(TransformationMatrix));
+	assert(transformationMatrixResourceSprite_ != nullptr);
+
+	if (transformationMatrixResourceSprite_ == nullptr) {
+		return false;
+	}
+
+	// Sprite用の座標変換Resourceにデータを書き込む
+	transformationMatrixDataSprite_ = nullptr;
+
+	// 書き込み用のアドレスを取得する
+	HRESULT hr = transformationMatrixResourceSprite_->Map(
+		0,
+		nullptr,
+		reinterpret_cast<void**>(&transformationMatrixDataSprite_)
+	);
+	assert(SUCCEEDED(hr));
+
+	if (FAILED(hr)) {
+		return false;
+	}
+
+	// 最初は単位行列を設定する
+	transformationMatrixDataSprite_->WVP = MakeIdentity4x4();
+
+	Log("Complete create Sprite TransformationMatrixResource!!!\n");
+
+	return true;
+}
+
 void DXCommon::UpdateTransformationMatrix() {
 	if (transformationMatrixData_ == nullptr) {
 		return;
 	}
 
-	// 今回はY軸回転で三角形を動かす
+	// Y軸回転で三角形を動かす
 	transform_.rotate.y += 0.03f;
 
 	// オブジェクトのWorldMatrixを作成する
@@ -1546,6 +1733,41 @@ void DXCommon::UpdateTransformationMatrix() {
 
 	// VertexShaderへ渡す行列を更新する
 	transformationMatrixData_->WVP = worldViewProjectionMatrix;
+}
+
+void DXCommon::UpdateSpriteTransformationMatrix() {
+	if (transformationMatrixDataSprite_ == nullptr) {
+		return;
+	}
+
+	// Sprite用のWorldMatrixを作成する
+	Matrix4x4 worldMatrixSprite = MakeAffineMatrix(
+		transformSprite_.scale,
+		transformSprite_.rotate,
+		transformSprite_.translate
+	);
+
+	// Spriteは2D表示なので、今回はViewMatrixは単位行列にする
+	Matrix4x4 viewMatrixSprite = MakeIdentity4x4();
+
+	// 画面座標をそのまま使えるように平行投影行列を作成する
+	Matrix4x4 projectionMatrixSprite = MakeOrthographicMatrix(
+		0.0f,
+		0.0f,
+		float(WinConfig::kClientWidth),
+		float(WinConfig::kClientHeight),
+		0.0f,
+		100.0f
+	);
+
+	// World、View、Projectionをまとめる
+	Matrix4x4 worldViewProjectionMatrixSprite = Multiply(
+		worldMatrixSprite,
+		Multiply(viewMatrixSprite, projectionMatrixSprite)
+	);
+
+	// VertexShaderへ渡すSprite用の行列を更新する
+	transformationMatrixDataSprite_->WVP = worldViewProjectionMatrixSprite;
 }
 
 void DXCommon::CreateViewportAndScissor() {

@@ -72,8 +72,11 @@ private:
 	D3D12_GPU_DESCRIPTOR_HANDLE GetSRVGPUDescriptorHandle(UINT index) const;
 	ID3D12Resource* CreateBufferResource(size_t sizeInBytes);
 	bool CreateVertexResource();
+	bool CreateSpriteResource();
 	bool CreateMaterialResource();
+	bool CreateMaterialResourceSprite();
 	bool CreateTransformationMatrixResource();
+	bool CreateSpriteTransformationMatrixResource();
 	void CreateViewportAndScissor();
 
 	IDxcBlob* CompileShader(
@@ -85,6 +88,7 @@ private:
 	);
 
 	void UpdateTransformationMatrix();
+	void UpdateSpriteTransformationMatrix();
 
 	void WaitForGpu();
 
@@ -120,20 +124,39 @@ private:
 	ID3D12Resource* vertexResource_ = nullptr;
 	D3D12_VERTEX_BUFFER_VIEW vertexBufferView_ = {};
 
+	ID3D12Resource* vertexResourceSprite_ = nullptr;
+	D3D12_VERTEX_BUFFER_VIEW vertexBufferViewSprite_ = {};
+
 	ID3D12Resource* materialResource_ = nullptr;
+	Material* materialData_ = nullptr;
+
+	ID3D12Resource* materialResourceSprite_ = nullptr;
+	Material* materialDataSprite_ = nullptr;
 
 	ID3D12Resource* transformationMatrixResource_ = nullptr;
 	TransformationMatrix* transformationMatrixData_ = nullptr;
 
+	ID3D12Resource* transformationMatrixResourceSprite_ = nullptr;
+	TransformationMatrix* transformationMatrixDataSprite_ = nullptr;
+
 	TextureManager textureManager_;
 	DebugGui debugGui_;
 
+	// 3Dモデル用の座標変換行列の初期値
 	Transform transform_ = {
 		{ 1.0f, 1.0f, 1.0f },
 		{ 0.0f, 0.0f, 0.0f },
 		{ 0.0f, 0.0f, 0.0f },
 	};
 
+	// スプライト用の座標変換行列の初期値
+	Transform transformSprite_ = {
+	{ 1.0f, 1.0f, 1.0f },
+	{ 0.0f, 0.0f, 0.0f },
+	{ 0.0f, 0.0f, 0.0f },
+	};
+
+	// カメラの座標変換行列の初期値
 	Transform cameraTransform_ = {
 		{ 1.0f, 1.0f, 1.0f },
 		{ 0.0f, 0.0f, 0.0f },
