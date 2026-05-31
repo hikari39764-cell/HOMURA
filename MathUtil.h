@@ -28,6 +28,7 @@ struct Transform {
 	Vector3 translate;
 };
 
+
 Matrix4x4 MakeIdentity4x4();
 Matrix4x4 Multiply(const Matrix4x4& matrix1, const Matrix4x4& matrix2);
 Matrix4x4 MakeScaleMatrix(const Vector3& scale);
@@ -46,3 +47,6 @@ Matrix4x4 MakeOrthographicMatrix(
 	float farClip
 );
 Matrix4x4 Inverse(const Matrix4x4& matrix);
+
+float Length(const Vector3& vector);
+Vector3 Normalize(const Vector3& vector);

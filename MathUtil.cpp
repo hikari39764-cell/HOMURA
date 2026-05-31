@@ -205,3 +205,25 @@ Matrix4x4 Inverse(const Matrix4x4& matrix) {
 
 	return result;
 }
+
+float Length(const Vector3& vector) {
+	return std::sqrt(
+		vector.x * vector.x +
+		vector.y * vector.y +
+		vector.z * vector.z
+	);
+}
+
+Vector3 Normalize(const Vector3& vector) {
+	float length = Length(vector);
+
+	if (length == 0.0f) {
+		return { 0.0f, 0.0f, 0.0f };
+	}
+
+	return {
+		vector.x / length,
+		vector.y / length,
+		vector.z / length
+	};
+}

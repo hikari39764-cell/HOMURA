@@ -23,15 +23,25 @@ public:
 private:
 	struct Material {
 		Vector4 color;
+		int32_t enableLighting;
+		float padding[3];
 	};
 
 	struct VertexData {
 		Vector4 position;
 		Vector2 texcoord;
+		Vector3 normal;
 	};
 
 	struct TransformationMatrix {
 		Matrix4x4 WVP;
+		Matrix4x4 World;
+	};
+
+	struct DirectionalLight {
+		Vector4 color;
+		Vector3 direction;
+		float intensity;
 	};
 
 private:
@@ -97,6 +107,7 @@ private:
 	bool CreateMaterialResourceSprite();
 	bool CreateTransformationMatrixResource();
 	bool CreateSpriteTransformationMatrixResource();
+	bool CreateDirectionalLightResource();
 	void CreateViewportAndScissor();
 
 	IDxcBlob* CompileShader(
@@ -108,7 +119,6 @@ private:
 	);
 
 	void UpdateTransformationMatrix();
-	void UpdateSpriteTransformationMatrix();
 
 	void WaitForGpu();
 
@@ -158,6 +168,9 @@ private:
 
 	ID3D12Resource* transformationMatrixResourceSprite_ = nullptr;
 	TransformationMatrix* transformationMatrixDataSprite_ = nullptr;
+
+	ID3D12Resource* directionalLightResource_ = nullptr;
+	DirectionalLight* directionalLightData_ = nullptr;
 
 	TextureManager textureManager_;
 	TextureManager textureManagerMonsterBall_;

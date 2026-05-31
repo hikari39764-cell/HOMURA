@@ -137,6 +137,11 @@ bool DXCommon::Initialize(HWND hwnd) {
 		return false;
 	}
 
+	// 平行光源用のResourceを作成する
+	if (!CreateDirectionalLightResource()) {
+		return false;
+	}
+
 	// 画面全体に描画するためのViewportとScissorを設定する
 	CreateViewportAndScissor();
 
@@ -249,6 +254,12 @@ void DXCommon::Finalize() {
 	debugGui_.Finalize();
 	textureManagerMonsterBall_.Finalize();
 	textureManager_.Finalize();
+
+	if (directionalLightResource_ != nullptr) {
+		directionalLightResource_->Release();
+		directionalLightResource_ = nullptr;
+		directionalLightData_ = nullptr;
+	}
 
 	if (transformationMatrixResource_ != nullptr) {
 		transformationMatrixResource_->Release();
@@ -421,9 +432,6 @@ void DXCommon::Draw() {
 	// 座標変換行列を更新する
 	UpdateTransformationMatrix();
 
-	// Sprite用の座標変換行列を更新する
-	UpdateSpriteTransformationMatrix();
-
 	// ImGuiのフレームを開始して開発用UIを作る
 	debugGui_.BeginFrame();
 
@@ -431,23 +439,30 @@ void DXCommon::Draw() {
 	ImGui::Begin("Settings");
 
 	if (materialData_ != nullptr) {
-		ImGui::ColorEdit4("sphere material", &materialData_->color.x);
+		ImGui::ColorEdit4("color", &materialData_->color.x);
+
+		bool enableLighting = materialData_->enableLighting != 0;
+		if (ImGui::Checkbox("enableLighting", &enableLighting)) {
+			materialData_->enableLighting = enableLighting ? 1 : 0;
+		}
 	}
 
-	if (materialDataSprite_ != nullptr) {
-		ImGui::ColorEdit4("sprite material", &materialDataSprite_->color.x);
-	}
-
-	ImGui::DragFloat3("sphere translate", &transform_.translate.x, 0.01f);
-	ImGui::DragFloat3("sphere rotate", &transform_.rotate.x, 0.01f);
-	ImGui::DragFloat3("sphere scale", &transform_.scale.x, 0.01f);
-
-	ImGui::DragFloat3("camera translate", &cameraTransform_.translate.x, 0.01f);
-	ImGui::DragFloat3("camera rotate", &cameraTransform_.rotate.x, 0.01f);
-
-	ImGui::DragFloat3("translateSprite", &transformSprite_.translate.x, 1.0f);
-	ImGui::DragFloat3("scaleSprite", &transformSprite_.scale.x, 0.01f);
+	// 球に貼るTextureを切り替える
 	ImGui::Checkbox("useMonsterBall", &useMonsterBall_);
+
+	ImGui::DragFloat3("CameraTranslate", &cameraTransform_.translate.x, 0.01f);
+	ImGui::DragFloat("CameraRotateX", &cameraTransform_.rotate.x, 0.01f);
+	ImGui::DragFloat("CameraRotateY", &cameraTransform_.rotate.y, 0.01f);
+	ImGui::DragFloat("CameraRotateZ", &cameraTransform_.rotate.z, 0.01f);
+
+	if (directionalLightData_ != nullptr) {
+		ImGui::ColorEdit4("LightColor", &directionalLightData_->color.x);
+		ImGui::DragFloat3("LightDirection", &directionalLightData_->direction.x, 0.01f);
+		ImGui::DragFloat("Intensity", &directionalLightData_->intensity, 0.01f);
+
+		// ライト方向は単位ベクトルである必要があるので正規化する
+		directionalLightData_->direction = Normalize(directionalLightData_->direction);
+	}
 
 	ImGui::End();
 #else
@@ -478,33 +493,19 @@ void DXCommon::Draw() {
 	commandList_->SetGraphicsRootConstantBufferView(1, transformationMatrixResource_->GetGPUVirtualAddress());
 
 	// PixelShaderで使うTexture用SRVのDescriptorTableを設定する
-	// useMonsterBall_がtrueならMonsterBall、falseならuvCheckerを使う
+	// trueならMonsterBall、falseならuvCheckerを使う
 	commandList_->SetGraphicsRootDescriptorTable(
 		2,
 		useMonsterBall_
-		? textureManagerMonsterBall_.GetTextureSrvHandleGPU()
-		: textureManager_.GetTextureSrvHandleGPU()
+			? textureManagerMonsterBall_.GetTextureSrvHandleGPU()
+			: textureManager_.GetTextureSrvHandleGPU()
 	);
+
+	// PixelShaderで使う平行光源CBufferの場所を設定する
+	commandList_->SetGraphicsRootConstantBufferView(3, directionalLightResource_->GetGPUVirtualAddress());
 
 	// 実際に球の描画命令を積む
 	commandList_->DrawInstanced(kSphereVertexCount, 1, 0, 0);
-
-	// Spriteの描画
-	commandList_->IASetVertexBuffers(0, 1, &vertexBufferViewSprite_);
-
-	// Sprite用のTransformationMatrixCBufferの場所を設定する
-	commandList_->SetGraphicsRootConstantBufferView(
-		1,
-		transformationMatrixResourceSprite_->GetGPUVirtualAddress()
-	);
-	// Sprite用のマテリアルCBufferの場所を設定する
-	commandList_->SetGraphicsRootConstantBufferView(0, materialResourceSprite_->GetGPUVirtualAddress());
-
-	// Spriteは常にuvCheckerを使うようにSRVを設定し直す
-	commandList_->SetGraphicsRootDescriptorTable(2, textureManager_.GetTextureSrvHandleGPU());
-
-	// 実際にSpriteの描画命令を積む
-	commandList_->DrawInstanced(6, 1, 0, 0);
 
 	// 最後にImGuiを描画して画面の前面に表示する
 	debugGui_.Render(commandList_);
@@ -1237,7 +1238,7 @@ bool DXCommon::CreateGraphicsPipelineState() {
 		D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
 	// RootParameter作成。PixelShaderのMaterial、VertexShaderのTransform、PixelShaderのTexture
-	D3D12_ROOT_PARAMETER rootParameters[3] = {};
+	D3D12_ROOT_PARAMETER rootParameters[4] = {};
 
 	rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
 	rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
@@ -1251,6 +1252,10 @@ bool DXCommon::CreateGraphicsPipelineState() {
 	rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 	rootParameters[2].DescriptorTable.pDescriptorRanges = descriptorRange;
 	rootParameters[2].DescriptorTable.NumDescriptorRanges = _countof(descriptorRange);
+
+	rootParameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	rootParameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	rootParameters[3].Descriptor.ShaderRegister = 1;
 
 	descriptionRootSignature.pParameters = rootParameters;
 	descriptionRootSignature.NumParameters = _countof(rootParameters);
@@ -1313,7 +1318,7 @@ bool DXCommon::CreateGraphicsPipelineState() {
 	}
 
 	// InputLayoutの設定
-	D3D12_INPUT_ELEMENT_DESC inputElementDescs[2] = {};
+	D3D12_INPUT_ELEMENT_DESC inputElementDescs[3] = {};
 
 	inputElementDescs[0].SemanticName = "POSITION";
 	inputElementDescs[0].SemanticIndex = 0;
@@ -1324,6 +1329,11 @@ bool DXCommon::CreateGraphicsPipelineState() {
 	inputElementDescs[1].SemanticIndex = 0;
 	inputElementDescs[1].Format = DXGI_FORMAT_R32G32_FLOAT;
 	inputElementDescs[1].AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT;
+
+	inputElementDescs[2].SemanticName = "NORMAL";
+	inputElementDescs[2].SemanticIndex = 0;
+	inputElementDescs[2].Format = DXGI_FORMAT_R32G32B32_FLOAT;
+	inputElementDescs[2].AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT;
 
 	D3D12_INPUT_LAYOUT_DESC inputLayoutDesc{};
 	inputLayoutDesc.pInputElementDescs = inputElementDescs;
@@ -1645,22 +1655,28 @@ bool DXCommon::CreateVertexResource() {
 			// 1枚目の三角形 a, b, c
 			vertexData[start + 0].position = a;
 			vertexData[start + 0].texcoord = { u, v };
+			vertexData[start + 0].normal = { a.x, a.y, a.z };
 
 			vertexData[start + 1].position = b;
 			vertexData[start + 1].texcoord = { u, nextV };
+			vertexData[start + 1].normal = { b.x, b.y, b.z };
 
 			vertexData[start + 2].position = c;
 			vertexData[start + 2].texcoord = { nextU, v };
+			vertexData[start + 2].normal = { c.x, c.y, c.z };
 
 			// 2枚目の三角形 c, b, d
 			vertexData[start + 3].position = c;
 			vertexData[start + 3].texcoord = { nextU, v };
+			vertexData[start + 3].normal = { c.x, c.y, c.z };
 
 			vertexData[start + 4].position = b;
 			vertexData[start + 4].texcoord = { u, nextV };
+			vertexData[start + 4].normal = { b.x, b.y, b.z };
 
 			vertexData[start + 5].position = d;
 			vertexData[start + 5].texcoord = { nextU, nextV };
+			vertexData[start + 5].normal = { d.x, d.y, d.z };
 		}
 	}
 
@@ -1718,6 +1734,11 @@ bool DXCommon::CreateSpriteResource() {
 	vertexDataSprite[5].position = { 640.0f, 360.0f, 0.0f, 1.0f };	// 右下
 	vertexDataSprite[5].texcoord = { 1.0f, 1.0f };
 
+	// Spriteは画面に向いた板なので、法線は-Z方向にしておく
+	for (uint32_t index = 0; index < 6; ++index) {
+		vertexDataSprite[index].normal = { 0.0f, 0.0f, -1.0f };
+	}
+
 	// Sprite用の頂点バッファビューを作成する
 	vertexBufferViewSprite_.BufferLocation = vertexResourceSprite_->GetGPUVirtualAddress();
 	vertexBufferViewSprite_.SizeInBytes = sizeof(VertexData) * 6;
@@ -1751,6 +1772,12 @@ bool DXCommon::CreateMaterialResource() {
 	// Textureの色をそのまま見やすくするため白色を設定する
 	materialData_->color = { 1.0f, 1.0f, 1.0f, 1.0f };
 
+	// 球はLightingする
+	materialData_->enableLighting = true;
+	materialData_->padding[0] = 0.0f;
+	materialData_->padding[1] = 0.0f;
+	materialData_->padding[2] = 0.0f;
+
 	Log("Complete create MaterialResource!!!\n");
 
 	return true;
@@ -1779,7 +1806,47 @@ bool DXCommon::CreateMaterialResourceSprite() {
 	// SpriteもTextureの色をそのまま見やすくするため白色を設定する
 	materialDataSprite_->color = { 1.0f, 1.0f, 1.0f, 1.0f };
 
+	// SpriteはLightingしない
+	materialDataSprite_->enableLighting = false;
+	materialDataSprite_->padding[0] = 0.0f;
+	materialDataSprite_->padding[1] = 0.0f;
+	materialDataSprite_->padding[2] = 0.0f;
+
 	Log("Complete create Sprite MaterialResource!!!\n");
+
+	return true;
+}
+
+bool DXCommon::CreateDirectionalLightResource() {
+	// 平行光源用のResourceを作成する
+	directionalLightResource_ = CreateBufferResource(sizeof(DirectionalLight));
+	assert(directionalLightResource_ != nullptr);
+
+	if (directionalLightResource_ == nullptr) {
+		return false;
+	}
+
+	// 平行光源Resourceにデータを書き込む
+	directionalLightData_ = nullptr;
+
+	// 書き込み用のアドレスを取得する
+	HRESULT hr = directionalLightResource_->Map(
+		0,
+		nullptr,
+		reinterpret_cast<void**>(&directionalLightData_)
+	);
+	assert(SUCCEEDED(hr));
+
+	if (FAILED(hr)) {
+		return false;
+	}
+
+	// とりあえず白いライトで上から下へ照らす
+	directionalLightData_->color = { 1.0f, 1.0f, 1.0f, 1.0f };
+	directionalLightData_->direction = Normalize({ 0.0f, -1.0f, 0.0f });
+	directionalLightData_->intensity = 1.0f;
+
+	Log("Complete create DirectionalLightResource!!!\n");
 
 	return true;
 }
@@ -1810,6 +1877,7 @@ bool DXCommon::CreateTransformationMatrixResource() {
 
 	// 最初は単位行列を設定する
 	transformationMatrixData_->WVP = MakeIdentity4x4();
+	transformationMatrixData_->World = MakeIdentity4x4();
 
 	Log("Complete create TransformationMatrixResource!!!\n");
 
@@ -1842,6 +1910,7 @@ bool DXCommon::CreateSpriteTransformationMatrixResource() {
 
 	// 最初は単位行列を設定する
 	transformationMatrixDataSprite_->WVP = MakeIdentity4x4();
+	transformationMatrixDataSprite_->World = MakeIdentity4x4();
 
 	Log("Complete create Sprite TransformationMatrixResource!!!\n");
 
@@ -1888,41 +1957,7 @@ void DXCommon::UpdateTransformationMatrix() {
 
 	// VertexShaderへ渡す行列を更新する
 	transformationMatrixData_->WVP = worldViewProjectionMatrix;
-}
-
-void DXCommon::UpdateSpriteTransformationMatrix() {
-	if (transformationMatrixDataSprite_ == nullptr) {
-		return;
-	}
-
-	// Sprite用のWorldMatrixを作成する
-	Matrix4x4 worldMatrixSprite = MakeAffineMatrix(
-		transformSprite_.scale,
-		transformSprite_.rotate,
-		transformSprite_.translate
-	);
-
-	// Spriteは2D表示なので、今回はViewMatrixは単位行列にする
-	Matrix4x4 viewMatrixSprite = MakeIdentity4x4();
-
-	// 画面座標をそのまま使えるように平行投影行列を作成する
-	Matrix4x4 projectionMatrixSprite = MakeOrthographicMatrix(
-		0.0f,
-		0.0f,
-		float(WinConfig::kClientWidth),
-		float(WinConfig::kClientHeight),
-		0.0f,
-		100.0f
-	);
-
-	// World、View、Projectionをまとめる
-	Matrix4x4 worldViewProjectionMatrixSprite = Multiply(
-		worldMatrixSprite,
-		Multiply(viewMatrixSprite, projectionMatrixSprite)
-	);
-
-	// VertexShaderへ渡すSprite用の行列を更新する
-	transformationMatrixDataSprite_->WVP = worldViewProjectionMatrixSprite;
+	transformationMatrixData_->World = worldMatrix;
 }
 
 void DXCommon::CreateViewportAndScissor() {
