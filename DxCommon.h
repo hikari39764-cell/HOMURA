@@ -41,6 +41,7 @@ private:
 	static constexpr UINT kDSVDescriptorCount = 1;
 	static constexpr UINT kImGuiSRVIndex = 0;
 	static constexpr UINT kTextureSRVIndex = 1;
+	static constexpr UINT kMonsterBallTextureSRVIndex = 2;
 
 	// 球の分割数。数を増やすほどなめらかになる
 	static constexpr uint32_t kSphereSubdivision = 16;
@@ -77,6 +78,16 @@ private:
 		UINT numDescriptors,
 		bool shaderVisible
 	);
+	D3D12_CPU_DESCRIPTOR_HANDLE GetCPUDescriptorHandle(
+		ID3D12DescriptorHeap* descriptorHeap,
+		UINT descriptorSize,
+		UINT index
+	) const;
+	D3D12_GPU_DESCRIPTOR_HANDLE GetGPUDescriptorHandle(
+		ID3D12DescriptorHeap* descriptorHeap,
+		UINT descriptorSize,
+		UINT index
+	) const;
 	D3D12_CPU_DESCRIPTOR_HANDLE GetSRVCPUDescriptorHandle(UINT index) const;
 	D3D12_GPU_DESCRIPTOR_HANDLE GetSRVGPUDescriptorHandle(UINT index) const;
 	ID3D12Resource* CreateBufferResource(size_t sizeInBytes);
@@ -149,7 +160,11 @@ private:
 	TransformationMatrix* transformationMatrixDataSprite_ = nullptr;
 
 	TextureManager textureManager_;
+	TextureManager textureManagerMonsterBall_;
 	DebugGui debugGui_;
+
+	// 球にMonsterBallTextureを使うかどうか
+	bool useMonsterBall_ = true;
 
 	// 3Dモデル用の座標変換行列の初期値
 	Transform transform_ = {

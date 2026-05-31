@@ -247,6 +247,7 @@ void DXCommon::Finalize() {
 	}
 
 	debugGui_.Finalize();
+	textureManagerMonsterBall_.Finalize();
 	textureManager_.Finalize();
 
 	if (transformationMatrixResource_ != nullptr) {
@@ -446,6 +447,7 @@ void DXCommon::Draw() {
 
 	ImGui::DragFloat3("translateSprite", &transformSprite_.translate.x, 1.0f);
 	ImGui::DragFloat3("scaleSprite", &transformSprite_.scale.x, 0.01f);
+	ImGui::Checkbox("useMonsterBall", &useMonsterBall_);
 
 	ImGui::End();
 #else
@@ -476,7 +478,13 @@ void DXCommon::Draw() {
 	commandList_->SetGraphicsRootConstantBufferView(1, transformationMatrixResource_->GetGPUVirtualAddress());
 
 	// PixelShaderで使うTexture用SRVのDescriptorTableを設定する
-	commandList_->SetGraphicsRootDescriptorTable(2, textureManager_.GetTextureSrvHandleGPU());
+	// useMonsterBall_がtrueならMonsterBall、falseならuvCheckerを使う
+	commandList_->SetGraphicsRootDescriptorTable(
+		2,
+		useMonsterBall_
+		? textureManagerMonsterBall_.GetTextureSrvHandleGPU()
+		: textureManager_.GetTextureSrvHandleGPU()
+	);
 
 	// 実際に球の描画命令を積む
 	commandList_->DrawInstanced(kSphereVertexCount, 1, 0, 0);
@@ -491,6 +499,9 @@ void DXCommon::Draw() {
 	);
 	// Sprite用のマテリアルCBufferの場所を設定する
 	commandList_->SetGraphicsRootConstantBufferView(0, materialResourceSprite_->GetGPUVirtualAddress());
+
+	// Spriteは常にuvCheckerを使うようにSRVを設定し直す
+	commandList_->SetGraphicsRootDescriptorTable(2, textureManager_.GetTextureSrvHandleGPU());
 
 	// 実際にSpriteの描画命令を積む
 	commandList_->DrawInstanced(6, 1, 0, 0);
@@ -888,7 +899,7 @@ bool DXCommon::CreateFence() {
 }
 
 bool DXCommon::CreateTexture() {
-	// resources内のuvCheckerを読み込んでShaderから使えるようにする
+	// resources内のTextureを読み込んでShaderから使えるようにする
 	// Texture転送用のCommandListを記録できる状態にする
 	HRESULT hr = commandAllocator_->Reset();
 	assert(SUCCEEDED(hr));
@@ -904,19 +915,48 @@ bool DXCommon::CreateTexture() {
 		return false;
 	}
 
-	ID3D12Resource* intermediateResource = nullptr;
+	ID3D12Resource* uvCheckerIntermediateResource = nullptr;
+	ID3D12Resource* monsterBallIntermediateResource = nullptr;
 
+	// 1枚目のTextureとしてuvCheckerを読み込む
 	if (!textureManager_.Initialize(
 		device_,
 		commandList_,
 		"Resources/uvChecker.png",
 		GetSRVCPUDescriptorHandle(kTextureSRVIndex),
 		GetSRVGPUDescriptorHandle(kTextureSRVIndex),
-		&intermediateResource
+		&uvCheckerIntermediateResource
 	)) {
-		if (intermediateResource != nullptr) {
-			intermediateResource->Release();
-			intermediateResource = nullptr;
+		if (uvCheckerIntermediateResource != nullptr) {
+			uvCheckerIntermediateResource->Release();
+			uvCheckerIntermediateResource = nullptr;
+		}
+
+		if (monsterBallIntermediateResource != nullptr) {
+			monsterBallIntermediateResource->Release();
+			monsterBallIntermediateResource = nullptr;
+		}
+
+		return false;
+	}
+
+	// 2枚目のTextureとしてmonsterBallを読み込む
+	if (!textureManagerMonsterBall_.Initialize(
+		device_,
+		commandList_,
+		"Resources/monsterBall.png",
+		GetSRVCPUDescriptorHandle(kMonsterBallTextureSRVIndex),
+		GetSRVGPUDescriptorHandle(kMonsterBallTextureSRVIndex),
+		&monsterBallIntermediateResource
+	)) {
+		if (uvCheckerIntermediateResource != nullptr) {
+			uvCheckerIntermediateResource->Release();
+			uvCheckerIntermediateResource = nullptr;
+		}
+
+		if (monsterBallIntermediateResource != nullptr) {
+			monsterBallIntermediateResource->Release();
+			monsterBallIntermediateResource = nullptr;
 		}
 
 		return false;
@@ -927,8 +967,16 @@ bool DXCommon::CreateTexture() {
 	assert(SUCCEEDED(hr));
 
 	if (FAILED(hr)) {
-		intermediateResource->Release();
-		intermediateResource = nullptr;
+		if (uvCheckerIntermediateResource != nullptr) {
+			uvCheckerIntermediateResource->Release();
+			uvCheckerIntermediateResource = nullptr;
+		}
+
+		if (monsterBallIntermediateResource != nullptr) {
+			monsterBallIntermediateResource->Release();
+			monsterBallIntermediateResource = nullptr;
+		}
+
 		return false;
 	}
 
@@ -938,12 +986,18 @@ bool DXCommon::CreateTexture() {
 	// 転送が完了するまで中間Resourceは保持しておく
 	WaitForGpu();
 
-	intermediateResource->Release();
-	intermediateResource = nullptr;
+	if (uvCheckerIntermediateResource != nullptr) {
+		uvCheckerIntermediateResource->Release();
+		uvCheckerIntermediateResource = nullptr;
+	}
+
+	if (monsterBallIntermediateResource != nullptr) {
+		monsterBallIntermediateResource->Release();
+		monsterBallIntermediateResource = nullptr;
+	}
 
 	return true;
 }
-
 bool DXCommon::CreateDebugGui(HWND hwnd) {
 	// ImGuiはSRV用Heapの先頭を使ってフォント用Textureを管理する
 	if (!debugGui_.Initialize(
@@ -1424,18 +1478,50 @@ ID3D12DescriptorHeap* DXCommon::CreateDescriptorHeap(
 	return descriptorHeap;
 }
 
+D3D12_CPU_DESCRIPTOR_HANDLE DXCommon::GetCPUDescriptorHandle(
+	ID3D12DescriptorHeap* descriptorHeap,
+	UINT descriptorSize,
+	UINT index
+) const {
+	// 指定したDescriptorHeapの指定した位置のCPUHandleを取得する
+	D3D12_CPU_DESCRIPTOR_HANDLE handleCPU =
+		descriptorHeap->GetCPUDescriptorHandleForHeapStart();
+
+	handleCPU.ptr += static_cast<SIZE_T>(descriptorSize) * index;
+
+	return handleCPU;
+}
+
+D3D12_GPU_DESCRIPTOR_HANDLE DXCommon::GetGPUDescriptorHandle(
+	ID3D12DescriptorHeap* descriptorHeap,
+	UINT descriptorSize,
+	UINT index
+) const {
+	// 指定したDescriptorHeapの指定した位置のGPUHandleを取得する
+	D3D12_GPU_DESCRIPTOR_HANDLE handleGPU =
+		descriptorHeap->GetGPUDescriptorHandleForHeapStart();
+
+	handleGPU.ptr += static_cast<SIZE_T>(descriptorSize) * index;
+
+	return handleGPU;
+}
+
 D3D12_CPU_DESCRIPTOR_HANDLE DXCommon::GetSRVCPUDescriptorHandle(UINT index) const {
 	// SRV用DescriptorHeapの指定した位置のCPUHandleを取得する
-	D3D12_CPU_DESCRIPTOR_HANDLE handle = srvDescriptorHeap_->GetCPUDescriptorHandleForHeapStart();
-	handle.ptr += static_cast<SIZE_T>(srvDescriptorSize_) * index;
-	return handle;
+	return GetCPUDescriptorHandle(
+		srvDescriptorHeap_,
+		srvDescriptorSize_,
+		index
+	);
 }
 
 D3D12_GPU_DESCRIPTOR_HANDLE DXCommon::GetSRVGPUDescriptorHandle(UINT index) const {
 	// SRV用DescriptorHeapの指定した位置のGPUHandleを取得する
-	D3D12_GPU_DESCRIPTOR_HANDLE handle = srvDescriptorHeap_->GetGPUDescriptorHandleForHeapStart();
-	handle.ptr += static_cast<SIZE_T>(srvDescriptorSize_) * index;
-	return handle;
+	return GetGPUDescriptorHandle(
+		srvDescriptorHeap_,
+		srvDescriptorSize_,
+		index
+	);
 }
 
 ID3D12Resource* DXCommon::CreateBufferResource(size_t sizeInBytes) {
