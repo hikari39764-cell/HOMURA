@@ -33,14 +33,17 @@ PixelShaderOutput main(VertexShaderOutput input)
 
     if (gMaterial.enableLighting != 0)
     {
-        // 法線とライト方向から、どれくらい光が当たっているかを求める
-        float cos = saturate(dot(normalize(input.normal), -gDirectionalLight.direction));
+        // 法線とライト方向の内積を求める
+        float NdotL = dot(normalize(input.normal), -gDirectionalLight.direction);
+
+        // Half Lambert。裏側も少し明るく見えるように[-1,1]を[0,1]へ変換する
+        float halfLambert = pow(NdotL * 0.5f + 0.5f, 2.0f);
 
         output.color =
             gMaterial.color *
             textureColor *
             gDirectionalLight.color *
-            cos *
+            halfLambert *
             gDirectionalLight.intensity;
     }
     else
