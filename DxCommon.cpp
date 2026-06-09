@@ -112,8 +112,18 @@ bool DXCommon::Initialize(HWND hwnd) {
 		return false;
 	}
 
+	// 球のIndexResourceを作成する
+	if (!CreateIndexResource()) {
+		return false;
+	}
+
 	// Sprite用の頂点Resourceを作成する
 	if (!CreateSpriteResource()) {
+		return false;
+	}
+
+	// Sprite用のIndexResourceを作成する
+	if (!CreateSpriteIndexResource()) {
 		return false;
 	}
 
@@ -290,9 +300,19 @@ void DXCommon::Finalize() {
 		vertexResourceSprite_ = nullptr;
 	}
 
+	if (indexResourceSprite_ != nullptr) {
+		indexResourceSprite_->Release();
+		indexResourceSprite_ = nullptr;
+	}
+
 	if (vertexResource_ != nullptr) {
 		vertexResource_->Release();
 		vertexResource_ = nullptr;
+	}
+
+	if (indexResource_ != nullptr) {
+		indexResource_->Release();
+		indexResource_ = nullptr;
 	}
 
 	if (graphicsPipelineState_ != nullptr) {
@@ -483,6 +503,9 @@ void DXCommon::Draw() {
 	// 球の頂点データをInputAssemblerへ渡す
 	commandList_->IASetVertexBuffers(0, 1, &vertexBufferView_);
 
+	// 球のインデックスデータをInputAssemblerへ渡す
+	commandList_->IASetIndexBuffer(&indexBufferView_);
+
 	// 三角形リストとして球を描画する
 	commandList_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
@@ -505,7 +528,7 @@ void DXCommon::Draw() {
 	commandList_->SetGraphicsRootConstantBufferView(3, directionalLightResource_->GetGPUVirtualAddress());
 
 	// 実際に球の描画命令を積む
-	commandList_->DrawInstanced(kSphereVertexCount, 1, 0, 0);
+	commandList_->DrawIndexedInstanced(kSphereIndexCount, 1, 0, 0, 0);
 
 	// 最後にImGuiを描画して画面の前面に表示する
 	debugGui_.Render(commandList_);
@@ -1601,82 +1624,34 @@ bool DXCommon::CreateVertexResource() {
 	// 緯度方向の1分割分の角度
 	const float kLatEvery = kPi / float(kSphereSubdivision);
 
-	// 緯度方向に分割する
-	for (uint32_t latIndex = 0; latIndex < kSphereSubdivision; ++latIndex) {
+	// 緯度方向に分割する。Indexで共有するので、端の頂点も含めて作成する
+	for (uint32_t latIndex = 0; latIndex <= kSphereSubdivision; ++latIndex) {
 		// 緯度。下から上へ作っていくため、最初は -π/2
 		float lat = -kPi / 2.0f + kLatEvery * float(latIndex);
 
-		// 経度方向に分割する
-		for (uint32_t lonIndex = 0; lonIndex < kSphereSubdivision; ++lonIndex) {
+		// 経度方向に分割する。UVのつなぎ目用に最後の列も作成する
+		for (uint32_t lonIndex = 0; lonIndex <= kSphereSubdivision; ++lonIndex) {
 			// 今から書き込む頂点の先頭番号
-			uint32_t start = (latIndex * kSphereSubdivision + lonIndex) * 6;
+			uint32_t vertexIndex = latIndex * (kSphereSubdivision + 1) + lonIndex;
 
 			// 経度
 			float lon = kLonEvery * float(lonIndex);
 
-			// 基準点a
-			Vector4 a = {
+			// 球面上の頂点位置
+			Vector4 position = {
 				std::cos(lat) * std::cos(lon),
 				std::sin(lat),
 				std::cos(lat) * std::sin(lon),
 				1.0f
 			};
 
-			// 基準点b
-			Vector4 b = {
-				std::cos(lat + kLatEvery) * std::cos(lon),
-				std::sin(lat + kLatEvery),
-				std::cos(lat + kLatEvery) * std::sin(lon),
-				1.0f
-			};
-
-			// 基準点c
-			Vector4 c = {
-				std::cos(lat) * std::cos(lon + kLonEvery),
-				std::sin(lat),
-				std::cos(lat) * std::sin(lon + kLonEvery),
-				1.0f
-			};
-
-			// 基準点d
-			Vector4 d = {
-				std::cos(lat + kLatEvery) * std::cos(lon + kLonEvery),
-				std::sin(lat + kLatEvery),
-				std::cos(lat + kLatEvery) * std::sin(lon + kLonEvery),
-				1.0f
-			};
-
 			// Texture用のUV座標を計算する
 			float u = float(lonIndex) / float(kSphereSubdivision);
 			float v = 1.0f - float(latIndex) / float(kSphereSubdivision);
-			float nextU = float(lonIndex + 1) / float(kSphereSubdivision);
-			float nextV = 1.0f - float(latIndex + 1) / float(kSphereSubdivision);
 
-			// 1枚目の三角形 a, b, c
-			vertexData[start + 0].position = a;
-			vertexData[start + 0].texcoord = { u, v };
-			vertexData[start + 0].normal = { a.x, a.y, a.z };
-
-			vertexData[start + 1].position = b;
-			vertexData[start + 1].texcoord = { u, nextV };
-			vertexData[start + 1].normal = { b.x, b.y, b.z };
-
-			vertexData[start + 2].position = c;
-			vertexData[start + 2].texcoord = { nextU, v };
-			vertexData[start + 2].normal = { c.x, c.y, c.z };
-
-			// 2枚目の三角形 c, b, d
-			vertexData[start + 3].position = c;
-			vertexData[start + 3].texcoord = { nextU, v };
-			vertexData[start + 3].normal = { c.x, c.y, c.z };
-
-			vertexData[start + 4].position = b;
-			vertexData[start + 4].texcoord = { u, nextV };
-			vertexData[start + 4].normal = { b.x, b.y, b.z };
-
-			vertexData[start + 5].position = d;
-			vertexData[start + 5].texcoord = { nextU, nextV };
-			vertexData[start + 5].normal = { d.x, d.y, d.z };
+			vertexData[vertexIndex].position = position;
+			vertexData[vertexIndex].texcoord = { u, v };
+			vertexData[vertexIndex].normal = { position.x, position.y, position.z };
 		}
 	}
 
@@ -1690,9 +1665,65 @@ bool DXCommon::CreateVertexResource() {
 	return true;
 }
 
+bool DXCommon::CreateIndexResource() {
+	// 球用のIndexResourceを作成する
+	indexResource_ = CreateBufferResource(sizeof(uint32_t) * kSphereIndexCount);
+	assert(indexResource_ != nullptr);
+
+	if (indexResource_ == nullptr) {
+		return false;
+	}
+
+	// IndexResourceにデータを書き込む
+	uint32_t* indexData = nullptr;
+
+	// 書き込み用のアドレスを取得する
+	HRESULT hr = indexResource_->Map(
+		0,
+		nullptr,
+		reinterpret_cast<void**>(&indexData)
+	);
+	assert(SUCCEEDED(hr));
+
+	if (FAILED(hr)) {
+		return false;
+	}
+
+	// 球の各マスを2枚の三角形にする
+	for (uint32_t latIndex = 0; latIndex < kSphereSubdivision; ++latIndex) {
+		for (uint32_t lonIndex = 0; lonIndex < kSphereSubdivision; ++lonIndex) {
+			uint32_t start = (latIndex * kSphereSubdivision + lonIndex) * 6;
+
+			uint32_t leftBottom = latIndex * (kSphereSubdivision + 1) + lonIndex;
+			uint32_t leftTop = (latIndex + 1) * (kSphereSubdivision + 1) + lonIndex;
+			uint32_t rightBottom = latIndex * (kSphereSubdivision + 1) + lonIndex + 1;
+			uint32_t rightTop = (latIndex + 1) * (kSphereSubdivision + 1) + lonIndex + 1;
+
+			// 1枚目の三角形
+			indexData[start + 0] = leftBottom;
+			indexData[start + 1] = leftTop;
+			indexData[start + 2] = rightBottom;
+
+			// 2枚目の三角形
+			indexData[start + 3] = rightBottom;
+			indexData[start + 4] = leftTop;
+			indexData[start + 5] = rightTop;
+		}
+	}
+
+	// 球用のインデックスバッファビューを作成する
+	indexBufferView_.BufferLocation = indexResource_->GetGPUVirtualAddress();
+	indexBufferView_.SizeInBytes = static_cast<UINT>(sizeof(uint32_t) * kSphereIndexCount);
+	indexBufferView_.Format = DXGI_FORMAT_R32_UINT;
+
+	Log("Complete create Sphere IndexResource!!!\n");
+
+	return true;
+}
+
 bool DXCommon::CreateSpriteResource() {
-	// Sprite用の頂点Resourceを作成する。矩形なので三角形2枚分の6頂点を用意する
-	vertexResourceSprite_ = CreateBufferResource(sizeof(VertexData) * 6);
+	// Sprite用の頂点Resourceを作成する。Indexを使うので4頂点だけ用意する
+	vertexResourceSprite_ = CreateBufferResource(sizeof(VertexData) * kSpriteVertexCount);
 	assert(vertexResourceSprite_ != nullptr);
 
 	if (vertexResourceSprite_ == nullptr) {
@@ -1714,7 +1745,6 @@ bool DXCommon::CreateSpriteResource() {
 		return false;
 	}
 
-	// 1枚目の三角形
 	vertexDataSprite[0].position = { 0.0f, 360.0f, 0.0f, 1.0f };		// 左下
 	vertexDataSprite[0].texcoord = { 0.0f, 1.0f };
 
@@ -1724,27 +1754,64 @@ bool DXCommon::CreateSpriteResource() {
 	vertexDataSprite[2].position = { 640.0f, 360.0f, 0.0f, 1.0f };	// 右下
 	vertexDataSprite[2].texcoord = { 1.0f, 1.0f };
 
-	// 2枚目の三角形
-	vertexDataSprite[3].position = { 0.0f, 0.0f, 0.0f, 1.0f };		// 左上
-	vertexDataSprite[3].texcoord = { 0.0f, 0.0f };
-
-	vertexDataSprite[4].position = { 640.0f, 0.0f, 0.0f, 1.0f };		// 右上
-	vertexDataSprite[4].texcoord = { 1.0f, 0.0f };
-
-	vertexDataSprite[5].position = { 640.0f, 360.0f, 0.0f, 1.0f };	// 右下
-	vertexDataSprite[5].texcoord = { 1.0f, 1.0f };
+	vertexDataSprite[3].position = { 640.0f, 0.0f, 0.0f, 1.0f };		// 右上
+	vertexDataSprite[3].texcoord = { 1.0f, 0.0f };
 
 	// Spriteは画面に向いた板なので、法線は-Z方向にしておく
-	for (uint32_t index = 0; index < 6; ++index) {
+	for (uint32_t index = 0; index < kSpriteVertexCount; ++index) {
 		vertexDataSprite[index].normal = { 0.0f, 0.0f, -1.0f };
 	}
 
 	// Sprite用の頂点バッファビューを作成する
 	vertexBufferViewSprite_.BufferLocation = vertexResourceSprite_->GetGPUVirtualAddress();
-	vertexBufferViewSprite_.SizeInBytes = sizeof(VertexData) * 6;
+	vertexBufferViewSprite_.SizeInBytes = static_cast<UINT>(sizeof(VertexData) * kSpriteVertexCount);
 	vertexBufferViewSprite_.StrideInBytes = sizeof(VertexData);
 
 	Log("Complete create Sprite VertexResource!!!\n");
+
+	return true;
+}
+
+bool DXCommon::CreateSpriteIndexResource() {
+	// Sprite用のIndexResourceを作成する
+	indexResourceSprite_ = CreateBufferResource(sizeof(uint32_t) * kSpriteIndexCount);
+	assert(indexResourceSprite_ != nullptr);
+
+	if (indexResourceSprite_ == nullptr) {
+		return false;
+	}
+
+	// Sprite用のIndexResourceにデータを書き込む
+	uint32_t* indexDataSprite = nullptr;
+
+	// 書き込み用のアドレスを取得する
+	HRESULT hr = indexResourceSprite_->Map(
+		0,
+		nullptr,
+		reinterpret_cast<void**>(&indexDataSprite)
+	);
+	assert(SUCCEEDED(hr));
+
+	if (FAILED(hr)) {
+		return false;
+	}
+
+	// 1枚目の三角形
+	indexDataSprite[0] = 0;
+	indexDataSprite[1] = 1;
+	indexDataSprite[2] = 2;
+
+	// 2枚目の三角形
+	indexDataSprite[3] = 1;
+	indexDataSprite[4] = 3;
+	indexDataSprite[5] = 2;
+
+	// Sprite用のインデックスバッファビューを作成する
+	indexBufferViewSprite_.BufferLocation = indexResourceSprite_->GetGPUVirtualAddress();
+	indexBufferViewSprite_.SizeInBytes = static_cast<UINT>(sizeof(uint32_t) * kSpriteIndexCount);
+	indexBufferViewSprite_.Format = DXGI_FORMAT_R32_UINT;
+
+	Log("Complete create Sprite IndexResource!!!\n");
 
 	return true;
 }

@@ -56,9 +56,19 @@ private:
 	// 球の分割数。数を増やすほどなめらかになる
 	static constexpr uint32_t kSphereSubdivision = 16;
 
-	// 球は1つの四角形を三角形2枚で作るので、1マスあたり6頂点になる
+	// Indexを使うので、経度と緯度の交点だけ頂点を用意する
 	static constexpr uint32_t kSphereVertexCount =
+		(kSphereSubdivision + 1) * (kSphereSubdivision + 1);
+
+	// 球は1つの四角形を三角形2枚で作るので、1マスあたり6インデックスになる
+	static constexpr uint32_t kSphereIndexCount =
 		kSphereSubdivision * kSphereSubdivision * 6;
+
+	// Spriteは矩形なので頂点は4つ
+	static constexpr uint32_t kSpriteVertexCount = 4;
+
+	// Spriteは三角形2枚で作るので、インデックスは6つ
+	static constexpr uint32_t kSpriteIndexCount = 6;
 
 private:
 	void EnableDebugLayer();
@@ -102,7 +112,9 @@ private:
 	D3D12_GPU_DESCRIPTOR_HANDLE GetSRVGPUDescriptorHandle(UINT index) const;
 	ID3D12Resource* CreateBufferResource(size_t sizeInBytes);
 	bool CreateVertexResource();
+	bool CreateIndexResource();
 	bool CreateSpriteResource();
+	bool CreateSpriteIndexResource();
 	bool CreateMaterialResource();
 	bool CreateMaterialResourceSprite();
 	bool CreateTransformationMatrixResource();
@@ -154,8 +166,14 @@ private:
 	ID3D12Resource* vertexResource_ = nullptr;
 	D3D12_VERTEX_BUFFER_VIEW vertexBufferView_ = {};
 
+	ID3D12Resource* indexResource_ = nullptr;
+	D3D12_INDEX_BUFFER_VIEW indexBufferView_ = {};
+
 	ID3D12Resource* vertexResourceSprite_ = nullptr;
 	D3D12_VERTEX_BUFFER_VIEW vertexBufferViewSprite_ = {};
+
+	ID3D12Resource* indexResourceSprite_ = nullptr;
+	D3D12_INDEX_BUFFER_VIEW indexBufferViewSprite_ = {};
 
 	ID3D12Resource* materialResource_ = nullptr;
 	Material* materialData_ = nullptr;
