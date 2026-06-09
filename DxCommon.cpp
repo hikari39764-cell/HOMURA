@@ -470,6 +470,24 @@ void DXCommon::Draw() {
 	// 球に貼るTextureを切り替える
 	ImGui::Checkbox("useMonsterBall", &useMonsterBall_);
 
+	ImGui::Separator();
+	ImGui::Text("Sprite UVTransform");
+
+	// SpriteのTexture座標を動かすためのUVTransformを編集する
+	ImGui::DragFloat2("UVTranslate", &uvTransform_.translate.x, 0.01f, -10.0f, 10.0f);
+	ImGui::DragFloat2("UVScale", &uvTransform_.scale.x, 0.01f, -10.0f, 10.0f);
+	ImGui::SliderAngle("UVRotate", &uvTransform_.rotate.z);
+	if (ImGui::Button("UVReset")) {
+		// SpriteのUVTransformを初期値に戻して確認しやすくする
+		uvTransform_ = {
+			{ 1.0f, 1.0f, 1.0f },
+			{ 0.0f, 0.0f, 0.0f },
+			{ 0.0f, 0.0f, 0.0f },
+		};
+	}
+
+	ImGui::Separator();
+
 	ImGui::DragFloat3("CameraTranslate", &cameraTransform_.translate.x, 0.01f);
 	ImGui::DragFloat("CameraRotateX", &cameraTransform_.rotate.x, 0.01f);
 	ImGui::DragFloat("CameraRotateY", &cameraTransform_.rotate.y, 0.01f);
@@ -529,6 +547,24 @@ void DXCommon::Draw() {
 
 	// 実際に球の描画命令を積む
 	commandList_->DrawIndexedInstanced(kSphereIndexCount, 1, 0, 0, 0);
+
+	// Spriteの頂点データをInputAssemblerへ渡す
+	commandList_->IASetVertexBuffers(0, 1, &vertexBufferViewSprite_);
+
+	// SpriteのインデックスデータをInputAssemblerへ渡す
+	commandList_->IASetIndexBuffer(&indexBufferViewSprite_);
+
+	// PixelShaderで使うSprite用マテリアルCBufferの場所を設定する
+	commandList_->SetGraphicsRootConstantBufferView(0, materialResourceSprite_->GetGPUVirtualAddress());
+
+	// VertexShaderで使うSprite用座標変換CBufferの場所を設定する
+	commandList_->SetGraphicsRootConstantBufferView(1, transformationMatrixResourceSprite_->GetGPUVirtualAddress());
+
+	// SpriteはuvCheckerを表示してUVTransformの動きを確認する
+	commandList_->SetGraphicsRootDescriptorTable(2, textureManager_.GetTextureSrvHandleGPU());
+
+	// 実際にSpriteの描画命令を積む
+	commandList_->DrawIndexedInstanced(kSpriteIndexCount, 1, 0, 0, 0);
 
 	// 最後にImGuiを描画して画面の前面に表示する
 	debugGui_.Render(commandList_);
@@ -1845,6 +1881,9 @@ bool DXCommon::CreateMaterialResource() {
 	materialData_->padding[1] = 0.0f;
 	materialData_->padding[2] = 0.0f;
 
+	// 最初は単位行列を設定する
+	materialData_->uvTransform = MakeIdentity4x4();
+
 	Log("Complete create MaterialResource!!!\n");
 
 	return true;
@@ -1878,6 +1917,9 @@ bool DXCommon::CreateMaterialResourceSprite() {
 	materialDataSprite_->padding[0] = 0.0f;
 	materialDataSprite_->padding[1] = 0.0f;
 	materialDataSprite_->padding[2] = 0.0f;
+
+	// 最初は単位行列を設定する
+	materialDataSprite_->uvTransform = MakeIdentity4x4();
 
 	Log("Complete create Sprite MaterialResource!!!\n");
 
@@ -1985,7 +2027,7 @@ bool DXCommon::CreateSpriteTransformationMatrixResource() {
 }
 
 void DXCommon::UpdateTransformationMatrix() {
-	if (transformationMatrixData_ == nullptr) {
+	if (transformationMatrixData_ == nullptr || transformationMatrixDataSprite_ == nullptr) {
 		return;
 	}
 
@@ -2025,6 +2067,43 @@ void DXCommon::UpdateTransformationMatrix() {
 	// VertexShaderへ渡す行列を更新する
 	transformationMatrixData_->WVP = worldViewProjectionMatrix;
 	transformationMatrixData_->World = worldMatrix;
+
+	// Spriteは画面座標で扱うので、正射影行列を使う
+	Matrix4x4 worldMatrixSprite = MakeAffineMatrix(
+		transformSprite_.scale,
+		transformSprite_.rotate,
+		transformSprite_.translate
+	);
+
+	Matrix4x4 viewMatrixSprite = MakeIdentity4x4();
+
+	Matrix4x4 projectionMatrixSprite = MakeOrthographicMatrix(
+		0.0f,
+		0.0f,
+		float(WinConfig::kClientWidth),
+		float(WinConfig::kClientHeight),
+		0.0f,
+		100.0f
+	);
+
+	Matrix4x4 worldViewProjectionMatrixSprite = Multiply(
+		worldMatrixSprite,
+		Multiply(viewMatrixSprite, projectionMatrixSprite)
+	);
+
+	// Sprite用の座標変換行列を更新する
+	transformationMatrixDataSprite_->WVP = worldViewProjectionMatrixSprite;
+	transformationMatrixDataSprite_->World = worldMatrixSprite;
+
+	// UVTransformはSRTの順で作成する
+	Matrix4x4 uvTransformMatrix = MakeScaleMatrix(uvTransform_.scale);
+	uvTransformMatrix = Multiply(uvTransformMatrix, MakeRotateZMatrix(uvTransform_.rotate.z));
+	uvTransformMatrix = Multiply(uvTransformMatrix, MakeTranslateMatrix(uvTransform_.translate));
+
+	if (materialDataSprite_ != nullptr) {
+		// SpriteだけにUVTransformを反映する
+		materialDataSprite_->uvTransform = uvTransformMatrix;
+	}
 }
 
 void DXCommon::CreateViewportAndScissor() {

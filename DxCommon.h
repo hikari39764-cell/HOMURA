@@ -25,6 +25,7 @@ private:
 		Vector4 color;
 		int32_t enableLighting;
 		float padding[3];
+		Matrix4x4 uvTransform;
 	};
 
 	struct VertexData {
@@ -206,9 +207,16 @@ private:
 
 	// スプライト用の座標変換行列の初期値
 	Transform transformSprite_ = {
-	{ 1.0f, 1.0f, 1.0f },
-	{ 0.0f, 0.0f, 0.0f },
-	{ 0.0f, 0.0f, 0.0f },
+		{ 1.0f, 1.0f, 1.0f },
+		{ 0.0f, 0.0f, 0.0f },
+		{ 0.0f, 0.0f, 0.0f },
+	};
+
+	// Sprite用のUV座標変換の初期値
+	Transform uvTransform_ = {
+		{ 1.0f, 1.0f, 1.0f },
+		{ 0.0f, 0.0f, 0.0f },
+		{ 0.0f, 0.0f, 0.0f },
 	};
 
 	// カメラの座標変換行列の初期値
