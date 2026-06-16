@@ -6,6 +6,7 @@
 #include "Logger.h"
 #include "DxCommon.h"
 #include "CrashHandler.h"
+#include "D3DResourceLeakChecker.h"
 
 #pragma comment(lib, "ole32.lib")
 
@@ -20,34 +21,39 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int showCmd) {
 	InitializeCrashHandler();
 	InitializeLogger();
 
-	WinApp winApp;
-	if (!winApp.Initialize(showCmd)) {
-		FinalizeLogger();
-		CoUninitialize();
-		return -1;
-	}
+	int result = 0;
 
-	DXCommon dxCommon;
-	if (!dxCommon.Initialize(winApp.GetHwnd())) {
-		winApp.Finalize();
-		FinalizeLogger();
-		CoUninitialize();
-		return -1;
-	}
+	{
+		// DirectX関連のComPtrが解放された後にリークチェックを走らせるため、先に作って最後に破棄させる
+		D3DResourceLeakChecker leakChecker;
 
-	while (true) {
-		if (winApp.ProcessMessage()) {
-			break;
+		WinApp winApp;
+		if (!winApp.Initialize(showCmd)) {
+			result = -1;
+		} else {
+			DXCommon dxCommon;
+			if (!dxCommon.Initialize(winApp.GetHwnd())) {
+				dxCommon.Finalize();
+				winApp.Finalize();
+				result = -1;
+			} else {
+				while (true) {
+					if (winApp.ProcessMessage()) {
+						break;
+					}
+
+					// 毎フレームBackBufferを指定色でクリアして画面に表示する
+					dxCommon.Draw();
+				}
+
+				dxCommon.Finalize();
+				winApp.Finalize();
+			}
 		}
-
-		// 毎フレームBackBufferを指定色でクリアして画面に表示する
-		dxCommon.Draw();
 	}
 
-	dxCommon.Finalize();
-	winApp.Finalize();
 	FinalizeLogger();
 	CoUninitialize();
 
-	return 0;
+	return result;
 }

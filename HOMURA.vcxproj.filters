@@ -141,6 +141,9 @@
     <ClInclude Include="CrashHandler.h">
       <Filter>Debug\CrashHandler</Filter>
     </ClInclude>
+    <ClInclude Include="D3DResourceLeakChecker.h">
+      <Filter>Debug\CrashHandler</Filter>
+    </ClInclude>
     <ClInclude Include="MathUtil.h">
       <Filter>Math</Filter>
     </ClInclude>

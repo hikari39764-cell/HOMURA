@@ -4,6 +4,7 @@
 #include <d3d12.h>
 #include <dxgi1_6.h>
 #include <dxcapi.h>
+#include <wrl.h>
 
 #include <cstdint>
 #include <cstddef>
@@ -51,7 +52,6 @@ private:
 private:
 	void EnableDebugLayer();
 	void SetupDebugInfoQueue();
-	void ReportLiveObjects();
 
 	bool CreateFactory();
 	bool SelectAdapter();
@@ -72,36 +72,36 @@ private:
 	bool CreateDebugGui(HWND hwnd);
 
 	bool CreateGraphicsPipelineState();
-	ID3D12DescriptorHeap* CreateDescriptorHeap(
+	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> CreateDescriptorHeap(
 		D3D12_DESCRIPTOR_HEAP_TYPE heapType,
 		UINT numDescriptors,
 		bool shaderVisible
 	);
 	D3D12_CPU_DESCRIPTOR_HANDLE GetCPUDescriptorHandle(
-		ID3D12DescriptorHeap* descriptorHeap,
+		const Microsoft::WRL::ComPtr<ID3D12DescriptorHeap>& descriptorHeap,
 		UINT descriptorSize,
 		UINT index
 	) const;
 	D3D12_GPU_DESCRIPTOR_HANDLE GetGPUDescriptorHandle(
-		ID3D12DescriptorHeap* descriptorHeap,
+		const Microsoft::WRL::ComPtr<ID3D12DescriptorHeap>& descriptorHeap,
 		UINT descriptorSize,
 		UINT index
 	) const;
 	D3D12_CPU_DESCRIPTOR_HANDLE GetSRVCPUDescriptorHandle(UINT index) const;
 	D3D12_GPU_DESCRIPTOR_HANDLE GetSRVGPUDescriptorHandle(UINT index) const;
-	ID3D12Resource* CreateBufferResource(size_t sizeInBytes);
+	Microsoft::WRL::ComPtr<ID3D12Resource> CreateBufferResource(size_t sizeInBytes);
 	bool CreateVertexResource();
 	bool CreateMaterialResource();
 	bool CreateTransformationMatrixResource();
 	bool CreateDirectionalLightResource();
 	void CreateViewportAndScissor();
 
-	IDxcBlob* CompileShader(
+	Microsoft::WRL::ComPtr<IDxcBlob> CompileShader(
 		const std::wstring& filePath,
 		const wchar_t* profile,
-		IDxcUtils* dxcUtils,
-		IDxcCompiler3* dxcCompiler,
-		IDxcIncludeHandler* includeHandler
+		const Microsoft::WRL::ComPtr<IDxcUtils>& dxcUtils,
+		const Microsoft::WRL::ComPtr<IDxcCompiler3>& dxcCompiler,
+		const Microsoft::WRL::ComPtr<IDxcIncludeHandler>& includeHandler
 	);
 
 	void UpdateTransformationMatrix();
@@ -109,44 +109,44 @@ private:
 	void WaitForGpu();
 
 private:
-	IDXGIFactory7* dxgiFactory_ = nullptr;
-	IDXGIAdapter4* useAdapter_ = nullptr;
-	ID3D12Device* device_ = nullptr;
+	Microsoft::WRL::ComPtr<IDXGIFactory7> dxgiFactory_;
+	Microsoft::WRL::ComPtr<IDXGIAdapter4> useAdapter_;
+	Microsoft::WRL::ComPtr<ID3D12Device> device_;
 
-	ID3D12CommandQueue* commandQueue_ = nullptr;
-	ID3D12CommandAllocator* commandAllocator_ = nullptr;
-	ID3D12GraphicsCommandList* commandList_ = nullptr;
+	Microsoft::WRL::ComPtr<ID3D12CommandQueue> commandQueue_;
+	Microsoft::WRL::ComPtr<ID3D12CommandAllocator> commandAllocator_;
+	Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList_;
 
-	IDXGISwapChain4* swapChain_ = nullptr;
-	ID3D12Resource* swapChainResources_[kBackBufferCount] = {};
+	Microsoft::WRL::ComPtr<IDXGISwapChain4> swapChain_;
+	Microsoft::WRL::ComPtr<ID3D12Resource> swapChainResources_[kBackBufferCount];
 
-	ID3D12DescriptorHeap* rtvDescriptorHeap_ = nullptr;
+	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> rtvDescriptorHeap_;
 	D3D12_CPU_DESCRIPTOR_HANDLE rtvHandles_[kBackBufferCount] = {};
 	UINT rtvDescriptorSize_ = 0;
 
-	ID3D12DescriptorHeap* srvDescriptorHeap_ = nullptr;
+	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srvDescriptorHeap_;
 	UINT srvDescriptorSize_ = 0;
 
-	ID3D12DescriptorHeap* dsvDescriptorHeap_ = nullptr;
-	ID3D12Resource* depthStencilResource_ = nullptr;
+	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> dsvDescriptorHeap_;
+	Microsoft::WRL::ComPtr<ID3D12Resource> depthStencilResource_;
 
-	ID3D12Fence* fence_ = nullptr;
+	Microsoft::WRL::ComPtr<ID3D12Fence> fence_;
 	UINT64 fenceValue_ = 0;
 	HANDLE fenceEvent_ = nullptr;
 
-	ID3D12RootSignature* rootSignature_ = nullptr;
-	ID3D12PipelineState* graphicsPipelineState_ = nullptr;
+	Microsoft::WRL::ComPtr<ID3D12RootSignature> rootSignature_;
+	Microsoft::WRL::ComPtr<ID3D12PipelineState> graphicsPipelineState_;
 
-	ID3D12Resource* vertexResource_ = nullptr;
+	Microsoft::WRL::ComPtr<ID3D12Resource> vertexResource_;
 	D3D12_VERTEX_BUFFER_VIEW vertexBufferView_ = {};
 
-	ID3D12Resource* materialResource_ = nullptr;
+	Microsoft::WRL::ComPtr<ID3D12Resource> materialResource_;
 	Material* materialData_ = nullptr;
 
-	ID3D12Resource* transformationMatrixResource_ = nullptr;
+	Microsoft::WRL::ComPtr<ID3D12Resource> transformationMatrixResource_;
 	TransformationMatrix* transformationMatrixData_ = nullptr;
 
-	ID3D12Resource* directionalLightResource_ = nullptr;
+	Microsoft::WRL::ComPtr<ID3D12Resource> directionalLightResource_;
 	DirectionalLight* directionalLightData_ = nullptr;
 
 	TextureManager textureManagerModel_;

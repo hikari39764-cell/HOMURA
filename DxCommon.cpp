@@ -4,7 +4,6 @@
 #include <cstring>
 #include <format>
 #include <d3d12sdklayers.h>
-#include <dxgidebug.h>
 #include <dxcapi.h>
 
 #ifdef USE_IMGUI
@@ -142,7 +141,7 @@ bool DXCommon::Initialize(HWND hwnd) {
 void DXCommon::EnableDebugLayer() {
 #ifdef _DEBUG
 	// DebugLayerを有効にする
-	ID3D12Debug1* debugController = nullptr;
+	Microsoft::WRL::ComPtr<ID3D12Debug1> debugController;
 
 	HRESULT hr = D3D12GetDebugInterface(IID_PPV_ARGS(&debugController));
 	if (SUCCEEDED(hr)) {
@@ -153,9 +152,6 @@ void DXCommon::EnableDebugLayer() {
 		debugController->SetEnableGPUBasedValidation(TRUE);
 
 		Log("Enable D3D12 DebugLayer!!!\n");
-
-		debugController->Release();
-		debugController = nullptr;
 	} else {
 		// DebugLayerが使えない環境でも、Releaseビルド同様に起動は続行する
 		Log("Failed to enable D3D12 DebugLayer.\n");
@@ -167,7 +163,7 @@ void DXCommon::SetupDebugInfoQueue() {
 #ifdef _DEBUG
 
 	// DeviceからInfoQueueを取得する
-	ID3D12InfoQueue* infoQueue = nullptr;
+	Microsoft::WRL::ComPtr<ID3D12InfoQueue> infoQueue;
 
 	HRESULT hr = device_->QueryInterface(IID_PPV_ARGS(&infoQueue));
 	if (SUCCEEDED(hr)) {
@@ -200,158 +196,28 @@ void DXCommon::SetupDebugInfoQueue() {
 		infoQueue->PushStorageFilter(&filter);
 
 		Log("Setup D3D12 InfoQueue!!!\n");
-
-		infoQueue->Release();
-		infoQueue = nullptr;
-	}
-#endif
-}
-
-void DXCommon::ReportLiveObjects() {
-#ifdef _DEBUG
-	// DirectX12 / DXGIの解放漏れを確認する
-	// すべてのDirectXオブジェクトをReleaseした後に呼び出すこと
-	IDXGIDebug1* debug = nullptr;
-
-	HRESULT hr = DXGIGetDebugInterface1(0, IID_PPV_ARGS(&debug));
-	if (SUCCEEDED(hr)) {
-		Log("========== DXGI Live Object Report Start!!!!!!!!!!!!!!!!!!!!!!!!!! ==========\n");
-
-		// DXGI全体の生存オブジェクトを出力する
-		debug->ReportLiveObjects(DXGI_DEBUG_ALL, DXGI_DEBUG_RLO_ALL);
-
-		// アプリケーション側で作成したDXGI関連オブジェクトを出力する
-		debug->ReportLiveObjects(DXGI_DEBUG_APP, DXGI_DEBUG_RLO_ALL);
-
-		// D3D12関連の生存オブジェクトを出力する
-		debug->ReportLiveObjects(DXGI_DEBUG_D3D12, DXGI_DEBUG_RLO_ALL);
-
-		Log("========== DXGI Live Object Report End !!!!!!!!!!!!!!!!!!!!!==========\n");
-
-		debug->Release();
-		debug = nullptr;
-	} else {
-		Log("Failed to get DXGI Debug Interface.\n");
 	}
 #endif
 }
 
 void DXCommon::Finalize() {
-	// GPUがまだResourceを使用している可能性があるので、解放前に待機する
-	if (commandQueue_ != nullptr && fence_ != nullptr) {
+	// GPUがまだResourceを使用している可能性があるので、ComPtrの解放前に待機する
+	if (commandQueue_.Get() != nullptr && fence_.Get() != nullptr) {
 		WaitForGpu();
 	}
 
 	debugGui_.Finalize();
 	textureManagerModel_.Finalize();
 
-	if (directionalLightResource_ != nullptr) {
-		directionalLightResource_->Release();
-		directionalLightResource_ = nullptr;
-		directionalLightData_ = nullptr;
-	}
-
-	if (transformationMatrixResource_ != nullptr) {
-		transformationMatrixResource_->Release();
-		transformationMatrixResource_ = nullptr;
-		transformationMatrixData_ = nullptr;
-	}
-
-	if (materialResource_ != nullptr) {
-		materialResource_->Release();
-		materialResource_ = nullptr;
-		materialData_ = nullptr;
-	}
-
-	if (vertexResource_ != nullptr) {
-		vertexResource_->Release();
-		vertexResource_ = nullptr;
-	}
-
-	if (graphicsPipelineState_ != nullptr) {
-		graphicsPipelineState_->Release();
-		graphicsPipelineState_ = nullptr;
-	}
-
-	if (rootSignature_ != nullptr) {
-		rootSignature_->Release();
-		rootSignature_ = nullptr;
-	}
+	// Mapしている先頭アドレスはResource本体をComPtrに任せ、こちらでは参照だけ外しておく
+	directionalLightData_ = nullptr;
+	transformationMatrixData_ = nullptr;
+	materialData_ = nullptr;
 
 	if (fenceEvent_ != nullptr) {
 		CloseHandle(fenceEvent_);
 		fenceEvent_ = nullptr;
 	}
-
-	if (fence_ != nullptr) {
-		fence_->Release();
-		fence_ = nullptr;
-	}
-
-	if (depthStencilResource_ != nullptr) {
-		depthStencilResource_->Release();
-		depthStencilResource_ = nullptr;
-	}
-
-	if (dsvDescriptorHeap_ != nullptr) {
-		dsvDescriptorHeap_->Release();
-		dsvDescriptorHeap_ = nullptr;
-	}
-
-	if (srvDescriptorHeap_ != nullptr) {
-		srvDescriptorHeap_->Release();
-		srvDescriptorHeap_ = nullptr;
-	}
-
-	if (rtvDescriptorHeap_ != nullptr) {
-		rtvDescriptorHeap_->Release();
-		rtvDescriptorHeap_ = nullptr;
-	}
-
-	for (UINT i = 0; i < kBackBufferCount; ++i) {
-		if (swapChainResources_[i] != nullptr) {
-			swapChainResources_[i]->Release();
-			swapChainResources_[i] = nullptr;
-		}
-	}
-
-	if (swapChain_ != nullptr) {
-		swapChain_->Release();
-		swapChain_ = nullptr;
-	}
-
-	if (commandList_ != nullptr) {
-		commandList_->Release();
-		commandList_ = nullptr;
-	}
-
-	if (commandAllocator_ != nullptr) {
-		commandAllocator_->Release();
-		commandAllocator_ = nullptr;
-	}
-
-	if (commandQueue_ != nullptr) {
-		commandQueue_->Release();
-		commandQueue_ = nullptr;
-	}
-
-	if (device_ != nullptr) {
-		device_->Release();
-		device_ = nullptr;
-	}
-
-	if (useAdapter_ != nullptr) {
-		useAdapter_->Release();
-		useAdapter_ = nullptr;
-	}
-
-	if (dxgiFactory_ != nullptr) {
-		dxgiFactory_->Release();
-		dxgiFactory_ = nullptr;
-	}
-
-	// すべてのDirectX関連オブジェクトを解放した後、解放漏れがないか確認する
-	ReportLiveObjects();
 }
 
 void DXCommon::Draw() {
@@ -363,14 +229,14 @@ void DXCommon::Draw() {
 	assert(SUCCEEDED(hr));
 
 	// CommandListも再び命令を書き込める状態に戻す
-	hr = commandList_->Reset(commandAllocator_, nullptr);
+	hr = commandList_->Reset(commandAllocator_.Get(), nullptr);
 	assert(SUCCEEDED(hr));
 
 	// BackBufferを描画先として使える状態へ変更する
 	D3D12_RESOURCE_BARRIER barrier{};
 	barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
 	barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-	barrier.Transition.pResource = swapChainResources_[backBufferIndex];
+	barrier.Transition.pResource = swapChainResources_[backBufferIndex].Get();
 	barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
 	barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
 	barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
@@ -441,12 +307,12 @@ void DXCommon::Draw() {
 	debugGui_.EndFrame();
 
 	// Shaderと描画設定をまとめたPipelineStateを設定する
-	commandList_->SetGraphicsRootSignature(rootSignature_);
-	commandList_->SetPipelineState(graphicsPipelineState_);
+	commandList_->SetGraphicsRootSignature(rootSignature_.Get());
+	commandList_->SetPipelineState(graphicsPipelineState_.Get());
 
 	// Shaderから参照するDescriptorHeapを設定する
 	ID3D12DescriptorHeap* descriptorHeaps[] = {
-		srvDescriptorHeap_
+		srvDescriptorHeap_.Get()
 	};
 	commandList_->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
@@ -472,7 +338,7 @@ void DXCommon::Draw() {
 	commandList_->DrawInstanced(static_cast<UINT>(modelData_.vertices.size()), 1, 0, 0);
 
 	// 最後にImGuiを描画して画面の前面に表示する
-	debugGui_.Render(commandList_);
+	debugGui_.Render(commandList_.Get());
 
 	// BackBufferを表示用の状態へ戻す
 	barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
@@ -485,7 +351,7 @@ void DXCommon::Draw() {
 	assert(SUCCEEDED(hr));
 
 	// GPUにCommandListの実行を依頼する
-	ID3D12CommandList* commandLists[] = { commandList_ };
+	ID3D12CommandList* commandLists[] = { commandList_.Get() };
 	commandQueue_->ExecuteCommandLists(1, commandLists);
 
 	// 画面を交換して、今描いたBackBufferを表示する
@@ -528,8 +394,7 @@ bool DXCommon::SelectAdapter() {
 		}
 
 		// ソフトウェアアダプタなら候補から外す
-		useAdapter_->Release();
-		useAdapter_ = nullptr;
+		useAdapter_.Reset();
 	}
 
 	// 有効なアダプタが見つからなければ起動できない
@@ -544,7 +409,7 @@ bool DXCommon::SelectAdapter() {
 
 bool DXCommon::CreateDevice() {
 	// 使用するアダプタ上にD3D12Deviceを生成する
-	ID3D12Device* device = nullptr;
+	Microsoft::WRL::ComPtr<ID3D12Device> device;
 
 	// 高い機能レベルから順に試す
 	D3D_FEATURE_LEVEL featureLevels[] = {
@@ -558,7 +423,7 @@ bool DXCommon::CreateDevice() {
 	HRESULT hr = S_OK;
 
 	for (size_t i = 0; i < _countof(featureLevels); ++i) {
-		hr = D3D12CreateDevice(useAdapter_, featureLevels[i], IID_PPV_ARGS(&device));
+		hr = D3D12CreateDevice(useAdapter_.Get(), featureLevels[i], IID_PPV_ARGS(&device));
 
 		if (SUCCEEDED(hr)) {
 			Log(std::format("FeatureLevel : {}\n", featureLevelStrings[i]));
@@ -567,9 +432,9 @@ bool DXCommon::CreateDevice() {
 	}
 
 	// デバイスが生成できなければ起動できない
-	assert(device != nullptr);
+	assert(device.Get() != nullptr);
 
-	if (device == nullptr) {
+	if (device.Get() == nullptr) {
 		return false;
 	}
 
@@ -617,7 +482,7 @@ bool DXCommon::CreateCommandList() {
 	hr = device_->CreateCommandList(
 		0,
 		D3D12_COMMAND_LIST_TYPE_DIRECT,
-		commandAllocator_,
+		commandAllocator_.Get(),
 		nullptr,
 		IID_PPV_ARGS(&commandList_)
 	);
@@ -650,16 +515,16 @@ bool DXCommon::CreateSwapChain(HWND hwnd) {
 	swapChainDesc.BufferCount = kBackBufferCount;
 	swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
 
-	IDXGISwapChain1* swapChain1 = nullptr;
+	Microsoft::WRL::ComPtr<IDXGISwapChain1> swapChain1;
 
 	// CommandQueue、ウィンドウハンドル、設定を渡してSwapChainを作成する
 	HRESULT hr = dxgiFactory_->CreateSwapChainForHwnd(
-		commandQueue_,
+		commandQueue_.Get(),
 		hwnd,
 		&swapChainDesc,
 		nullptr,
 		nullptr,
-		&swapChain1
+		swapChain1.GetAddressOf()
 	);
 	assert(SUCCEEDED(hr));
 
@@ -668,11 +533,8 @@ bool DXCommon::CreateSwapChain(HWND hwnd) {
 	}
 
 	// より新しいIDXGISwapChain4として扱えるように変換する
-	hr = swapChain1->QueryInterface(IID_PPV_ARGS(&swapChain_));
+	hr = swapChain1.As(&swapChain_);
 	assert(SUCCEEDED(hr));
-
-	swapChain1->Release();
-	swapChain1 = nullptr;
 
 	if (FAILED(hr)) {
 		return false;
@@ -686,7 +548,7 @@ bool DXCommon::CreateRTVDescriptorHeap() {
 	// RTV用のDescriptorHeapを作成する
 	rtvDescriptorHeap_ = CreateDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_RTV, kBackBufferCount, false);
 
-	if (rtvDescriptorHeap_ == nullptr) {
+	if (rtvDescriptorHeap_.Get() == nullptr) {
 		return false;
 	}
 
@@ -705,7 +567,7 @@ bool DXCommon::CreateSRVDescriptorHeap() {
 		true
 	);
 
-	if (srvDescriptorHeap_ == nullptr) {
+	if (srvDescriptorHeap_.Get() == nullptr) {
 		return false;
 	}
 
@@ -725,7 +587,7 @@ bool DXCommon::CreateDSVDescriptorHeap() {
 		false
 	);
 
-	if (dsvDescriptorHeap_ == nullptr) {
+	if (dsvDescriptorHeap_.Get() == nullptr) {
 		return false;
 	}
 
@@ -750,7 +612,7 @@ bool DXCommon::GetSwapChainResources() {
 }
 
 bool DXCommon::CreateDSV() {
-	if (depthStencilResource_ == nullptr || dsvDescriptorHeap_ == nullptr) {
+	if (depthStencilResource_.Get() == nullptr || dsvDescriptorHeap_.Get() == nullptr) {
 		return false;
 	}
 
@@ -761,7 +623,7 @@ bool DXCommon::CreateDSV() {
 
 	// DSVHeapの先頭にDSVを作る
 	device_->CreateDepthStencilView(
-		depthStencilResource_,
+		depthStencilResource_.Get(),
 		&dsvDesc,
 		dsvDescriptorHeap_->GetCPUDescriptorHandleForHeapStart()
 	);
@@ -787,7 +649,7 @@ bool DXCommon::CreateRTV() {
 		rtvHandles_[i].ptr += static_cast<SIZE_T>(rtvDescriptorSize_) * i;
 
 		// BackBufferのResourceに対してRTVを作成する
-		device_->CreateRenderTargetView(swapChainResources_[i], &rtvDesc, rtvHandles_[i]);
+		device_->CreateRenderTargetView(swapChainResources_[i].Get(), &rtvDesc, rtvHandles_[i]);
 	}
 
 	Log("Complete create RTV!!!\n");
@@ -892,21 +754,14 @@ bool DXCommon::CreateTexture() {
 		return false;
 	}
 
-	hr = commandList_->Reset(commandAllocator_, nullptr);
+	hr = commandList_->Reset(commandAllocator_.Get(), nullptr);
 	assert(SUCCEEDED(hr));
 
 	if (FAILED(hr)) {
 		return false;
 	}
 
-	ID3D12Resource* modelIntermediateResource = nullptr;
-
-	auto releaseIntermediateResources = [&]() {
-		if (modelIntermediateResource != nullptr) {
-			modelIntermediateResource->Release();
-			modelIntermediateResource = nullptr;
-		}
-	};
+	Microsoft::WRL::ComPtr<ID3D12Resource> modelIntermediateResource;
 
 	// OBJのMaterialで指定されたTextureを読み込む
 	if (!textureManagerModel_.Initialize(
@@ -917,7 +772,6 @@ bool DXCommon::CreateTexture() {
 		GetSRVGPUDescriptorHandle(kModelTextureSRVIndex),
 		&modelIntermediateResource
 	)) {
-		releaseIntermediateResources();
 		return false;
 	}
 
@@ -926,17 +780,14 @@ bool DXCommon::CreateTexture() {
 	assert(SUCCEEDED(hr));
 
 	if (FAILED(hr)) {
-		releaseIntermediateResources();
 		return false;
 	}
 
-	ID3D12CommandList* commandLists[] = { commandList_ };
+	ID3D12CommandList* commandLists[] = { commandList_.Get() };
 	commandQueue_->ExecuteCommandLists(1, commandLists);
 
 	// 転送が完了するまで中間Resourceは保持しておく
 	WaitForGpu();
-
-	releaseIntermediateResources();
 
 	return true;
 }
@@ -944,10 +795,10 @@ bool DXCommon::CreateDebugGui(HWND hwnd) {
 	// ImGuiはSRV用Heapの先頭を使ってフォント用Textureを管理する
 	if (!debugGui_.Initialize(
 		hwnd,
-		device_,
+		device_.Get(),
 		kBackBufferCount,
 		DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
-		srvDescriptorHeap_,
+		srvDescriptorHeap_.Get(),
 		GetSRVCPUDescriptorHandle(kImGuiSRVIndex),
 		GetSRVGPUDescriptorHandle(kImGuiSRVIndex)
 	)) {
@@ -957,23 +808,23 @@ bool DXCommon::CreateDebugGui(HWND hwnd) {
 	return true;
 }
 
-IDxcBlob* DXCommon::CompileShader(
+Microsoft::WRL::ComPtr<IDxcBlob> DXCommon::CompileShader(
 	const std::wstring& filePath,
 	const wchar_t* profile,
-	IDxcUtils* dxcUtils,
-	IDxcCompiler3* dxcCompiler,
-	IDxcIncludeHandler* includeHandler
+	const Microsoft::WRL::ComPtr<IDxcUtils>& dxcUtils,
+	const Microsoft::WRL::ComPtr<IDxcCompiler3>& dxcCompiler,
+	const Microsoft::WRL::ComPtr<IDxcIncludeHandler>& includeHandler
 ) {
 	// ログ
 	Log(std::format(L"Begin CompileShader, path:{}, profile:{}\n", filePath, profile));
 
 	// hlslファイルを読み込む
-	IDxcBlobEncoding* shaderSource = nullptr;
-	HRESULT hr = dxcUtils->LoadFile(filePath.c_str(), nullptr, &shaderSource);
+	Microsoft::WRL::ComPtr<IDxcBlobEncoding> shaderSource;
+	HRESULT hr = dxcUtils->LoadFile(filePath.c_str(), nullptr, shaderSource.GetAddressOf());
 	assert(SUCCEEDED(hr));
 
 	if (FAILED(hr)) {
-		return nullptr;
+		return {};
 	}
 
 	// 読み込んだファイルの内容をDXCへ渡す
@@ -993,47 +844,31 @@ IDxcBlob* DXCommon::CompileShader(
 	};
 
 	// 実際にShaderをCompileする
-	IDxcResult* shaderResult = nullptr;
+	Microsoft::WRL::ComPtr<IDxcResult> shaderResult;
 	hr = dxcCompiler->Compile(
 		&shaderSourceBuffer,
 		arguments,
 		_countof(arguments),
-		includeHandler,
+		includeHandler.Get(),
 		IID_PPV_ARGS(&shaderResult)
 	);
 	assert(SUCCEEDED(hr));
 
 	if (FAILED(hr)) {
-		shaderSource->Release();
-		shaderSource = nullptr;
-		return nullptr;
+		return {};
 	}
 
 	// 警告又はエラーが出ていないか確認する
-	IDxcBlobUtf8* shaderError = nullptr;
+	Microsoft::WRL::ComPtr<IDxcBlobUtf8> shaderError;
 	hr = shaderResult->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(&shaderError), nullptr);
 	assert(SUCCEEDED(hr));
 
 	if (shaderError != nullptr && shaderError->GetStringLength() != 0) {
 		Log(shaderError->GetStringPointer());
 
-		shaderError->Release();
-		shaderError = nullptr;
-
-		shaderSource->Release();
-		shaderSource = nullptr;
-
-		shaderResult->Release();
-		shaderResult = nullptr;
-
 		// Shaderの警告又はエラーは必ず直す
 		assert(false);
-		return nullptr;
-	}
-
-	if (shaderError != nullptr) {
-		shaderError->Release();
-		shaderError = nullptr;
+		return {};
 	}
 
 	// Compile自体が成功しているか確認する
@@ -1043,40 +878,21 @@ IDxcBlob* DXCommon::CompileShader(
 	assert(SUCCEEDED(compileStatus));
 
 	if (FAILED(hr) || FAILED(compileStatus)) {
-		shaderSource->Release();
-		shaderSource = nullptr;
-
-		shaderResult->Release();
-		shaderResult = nullptr;
-
-		return nullptr;
+		return {};
 	}
 
 	// Compile結果から実行用のバイナリ部分を取得する
-	IDxcBlob* shaderBlob = nullptr;
+	Microsoft::WRL::ComPtr<IDxcBlob> shaderBlob;
 	hr = shaderResult->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&shaderBlob), nullptr);
 	assert(SUCCEEDED(hr));
 	assert(shaderBlob != nullptr);
 
 	if (FAILED(hr) || shaderBlob == nullptr) {
-		shaderSource->Release();
-		shaderSource = nullptr;
-
-		shaderResult->Release();
-		shaderResult = nullptr;
-
-		return nullptr;
+		return {};
 	}
 
 	// 成功したらログを出す
 	Log(std::format(L"Compile Succeeded, path:{}, profile:{}\n", filePath, profile));
-
-	// リソースを解放する
-	shaderSource->Release();
-	shaderSource = nullptr;
-
-	shaderResult->Release();
-	shaderResult = nullptr;
 
 	// 実行用のバイナリを返す
 	return shaderBlob;
@@ -1084,9 +900,9 @@ IDxcBlob* DXCommon::CompileShader(
 
 bool DXCommon::CreateGraphicsPipelineState() {
 	// DXCを初期化する
-	IDxcUtils* dxcUtils = nullptr;
-	IDxcCompiler3* dxcCompiler = nullptr;
-	IDxcIncludeHandler* includeHandler = nullptr;
+	Microsoft::WRL::ComPtr<IDxcUtils> dxcUtils;
+	Microsoft::WRL::ComPtr<IDxcCompiler3> dxcCompiler;
+	Microsoft::WRL::ComPtr<IDxcIncludeHandler> includeHandler;
 
 	HRESULT hr = DxcCreateInstance(CLSID_DxcUtils, IID_PPV_ARGS(&dxcUtils));
 	assert(SUCCEEDED(hr));
@@ -1099,8 +915,6 @@ bool DXCommon::CreateGraphicsPipelineState() {
 	assert(SUCCEEDED(hr));
 
 	if (FAILED(hr)) {
-		dxcUtils->Release();
-		dxcUtils = nullptr;
 		return false;
 	}
 
@@ -1108,17 +922,11 @@ bool DXCommon::CreateGraphicsPipelineState() {
 	assert(SUCCEEDED(hr));
 
 	if (FAILED(hr)) {
-		dxcCompiler->Release();
-		dxcCompiler = nullptr;
-
-		dxcUtils->Release();
-		dxcUtils = nullptr;
-
 		return false;
 	}
 
 	// Shaderをコンパイルする
-	IDxcBlob* vertexShaderBlob = CompileShader(
+	Microsoft::WRL::ComPtr<IDxcBlob> vertexShaderBlob = CompileShader(
 		L"Object3d.VS.hlsl",
 		L"vs_6_0",
 		dxcUtils,
@@ -1128,19 +936,10 @@ bool DXCommon::CreateGraphicsPipelineState() {
 	assert(vertexShaderBlob != nullptr);
 
 	if (vertexShaderBlob == nullptr) {
-		includeHandler->Release();
-		includeHandler = nullptr;
-
-		dxcCompiler->Release();
-		dxcCompiler = nullptr;
-
-		dxcUtils->Release();
-		dxcUtils = nullptr;
-
 		return false;
 	}
 
-	IDxcBlob* pixelShaderBlob = CompileShader(
+	Microsoft::WRL::ComPtr<IDxcBlob> pixelShaderBlob = CompileShader(
 		L"Object3d.PS.hlsl",
 		L"ps_6_0",
 		dxcUtils,
@@ -1150,18 +949,6 @@ bool DXCommon::CreateGraphicsPipelineState() {
 	assert(pixelShaderBlob != nullptr);
 
 	if (pixelShaderBlob == nullptr) {
-		vertexShaderBlob->Release();
-		vertexShaderBlob = nullptr;
-
-		includeHandler->Release();
-		includeHandler = nullptr;
-
-		dxcCompiler->Release();
-		dxcCompiler = nullptr;
-
-		dxcUtils->Release();
-		dxcUtils = nullptr;
-
 		return false;
 	}
 
@@ -1216,21 +1003,19 @@ bool DXCommon::CreateGraphicsPipelineState() {
 	descriptionRootSignature.NumStaticSamplers = _countof(staticSamplers);
 
 	// シリアライズしてバイナリにする
-	ID3DBlob* signatureBlob = nullptr;
-	ID3DBlob* errorBlob = nullptr;
+	Microsoft::WRL::ComPtr<ID3DBlob> signatureBlob;
+	Microsoft::WRL::ComPtr<ID3DBlob> errorBlob;
 
 	hr = D3D12SerializeRootSignature(
 		&descriptionRootSignature,
 		D3D_ROOT_SIGNATURE_VERSION_1,
-		&signatureBlob,
-		&errorBlob
+		signatureBlob.GetAddressOf(),
+		errorBlob.GetAddressOf()
 	);
 
 	if (FAILED(hr)) {
-		if (errorBlob != nullptr) {
+		if (errorBlob.Get() != nullptr) {
 			Log(reinterpret_cast<char*>(errorBlob->GetBufferPointer()));
-			errorBlob->Release();
-			errorBlob = nullptr;
 		}
 
 		assert(false);
@@ -1247,14 +1032,6 @@ bool DXCommon::CreateGraphicsPipelineState() {
 	assert(SUCCEEDED(hr));
 
 	if (FAILED(hr)) {
-		signatureBlob->Release();
-		signatureBlob = nullptr;
-
-		if (errorBlob != nullptr) {
-			errorBlob->Release();
-			errorBlob = nullptr;
-		}
-
 		return false;
 	}
 
@@ -1313,7 +1090,7 @@ bool DXCommon::CreateGraphicsPipelineState() {
 
 	// PSOを生成する
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC graphicsPipelineStateDesc{};
-	graphicsPipelineStateDesc.pRootSignature = rootSignature_;
+	graphicsPipelineStateDesc.pRootSignature = rootSignature_.Get();
 	graphicsPipelineStateDesc.InputLayout = inputLayoutDesc;
 	graphicsPipelineStateDesc.VS = {
 		vertexShaderBlob->GetBufferPointer(),
@@ -1350,68 +1127,21 @@ bool DXCommon::CreateGraphicsPipelineState() {
 	assert(SUCCEEDED(hr));
 
 	if (FAILED(hr)) {
-		signatureBlob->Release();
-		signatureBlob = nullptr;
-
-		if (errorBlob != nullptr) {
-			errorBlob->Release();
-			errorBlob = nullptr;
-		}
-
-		vertexShaderBlob->Release();
-		vertexShaderBlob = nullptr;
-
-		pixelShaderBlob->Release();
-		pixelShaderBlob = nullptr;
-
-		includeHandler->Release();
-		includeHandler = nullptr;
-
-		dxcCompiler->Release();
-		dxcCompiler = nullptr;
-
-		dxcUtils->Release();
-		dxcUtils = nullptr;
-
 		return false;
 	}
-
-	// もう使わないResourceを解放
-	signatureBlob->Release();
-	signatureBlob = nullptr;
-
-	if (errorBlob != nullptr) {
-		errorBlob->Release();
-		errorBlob = nullptr;
-	}
-
-	vertexShaderBlob->Release();
-	vertexShaderBlob = nullptr;
-
-	pixelShaderBlob->Release();
-	pixelShaderBlob = nullptr;
-
-	includeHandler->Release();
-	includeHandler = nullptr;
-
-	dxcCompiler->Release();
-	dxcCompiler = nullptr;
-
-	dxcUtils->Release();
-	dxcUtils = nullptr;
 
 	Log("Complete create GraphicsPipelineState!!!\n");
 
 	return true;
 }
 
-ID3D12DescriptorHeap* DXCommon::CreateDescriptorHeap(
+Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> DXCommon::CreateDescriptorHeap(
 	D3D12_DESCRIPTOR_HEAP_TYPE heapType,
 	UINT numDescriptors,
 	bool shaderVisible
 ) {
 	// DescriptorHeapの作成処理を共通化する
-	ID3D12DescriptorHeap* descriptorHeap = nullptr;
+	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> descriptorHeap;
 
 	D3D12_DESCRIPTOR_HEAP_DESC descriptorHeapDesc{};
 	descriptorHeapDesc.Type = heapType;
@@ -1426,14 +1156,14 @@ ID3D12DescriptorHeap* DXCommon::CreateDescriptorHeap(
 	assert(SUCCEEDED(hr));
 
 	if (FAILED(hr)) {
-		return nullptr;
+		return {};
 	}
 
 	return descriptorHeap;
 }
 
 D3D12_CPU_DESCRIPTOR_HANDLE DXCommon::GetCPUDescriptorHandle(
-	ID3D12DescriptorHeap* descriptorHeap,
+	const Microsoft::WRL::ComPtr<ID3D12DescriptorHeap>& descriptorHeap,
 	UINT descriptorSize,
 	UINT index
 ) const {
@@ -1447,7 +1177,7 @@ D3D12_CPU_DESCRIPTOR_HANDLE DXCommon::GetCPUDescriptorHandle(
 }
 
 D3D12_GPU_DESCRIPTOR_HANDLE DXCommon::GetGPUDescriptorHandle(
-	ID3D12DescriptorHeap* descriptorHeap,
+	const Microsoft::WRL::ComPtr<ID3D12DescriptorHeap>& descriptorHeap,
 	UINT descriptorSize,
 	UINT index
 ) const {
@@ -1478,7 +1208,7 @@ D3D12_GPU_DESCRIPTOR_HANDLE DXCommon::GetSRVGPUDescriptorHandle(UINT index) cons
 	);
 }
 
-ID3D12Resource* DXCommon::CreateBufferResource(size_t sizeInBytes) {
+Microsoft::WRL::ComPtr<ID3D12Resource> DXCommon::CreateBufferResource(size_t sizeInBytes) {
 	// Buffer用のResourceを作成するためのHeap設定
 	D3D12_HEAP_PROPERTIES uploadHeapProperties{};
 	uploadHeapProperties.Type = D3D12_HEAP_TYPE_UPLOAD;
@@ -1494,7 +1224,7 @@ ID3D12Resource* DXCommon::CreateBufferResource(size_t sizeInBytes) {
 	bufferResourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
 
 	// 実際にBufferResourceを作成する
-	ID3D12Resource* bufferResource = nullptr;
+	Microsoft::WRL::ComPtr<ID3D12Resource> bufferResource;
 	HRESULT hr = device_->CreateCommittedResource(
 		&uploadHeapProperties,
 		D3D12_HEAP_FLAG_NONE,
@@ -1506,7 +1236,7 @@ ID3D12Resource* DXCommon::CreateBufferResource(size_t sizeInBytes) {
 	assert(SUCCEEDED(hr));
 
 	if (FAILED(hr)) {
-		return nullptr;
+		return {};
 	}
 
 	return bufferResource;
@@ -1725,7 +1455,7 @@ void DXCommon::WaitForGpu() {
 
 	// CommandQueueにSignalを送る
 	// GPUがここまで実行し終わったら、FenceにwaitFenceValueを書き込む
-	HRESULT hr = commandQueue_->Signal(fence_, waitFenceValue);
+	HRESULT hr = commandQueue_->Signal(fence_.Get(), waitFenceValue);
 	assert(SUCCEEDED(hr));
 
 	// GPUがまだ指定したFence値まで到達していなければ待機する
