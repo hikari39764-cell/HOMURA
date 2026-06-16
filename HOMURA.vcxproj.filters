@@ -31,6 +31,9 @@
     <Filter Include="Math">
       <UniqueIdentifier>{6d5b3818-5fff-4587-b0a7-3a35e9b0cf18}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Audio">
+      <UniqueIdentifier>{9bcf7db9-cf71-4f33-b69f-5aa7b0fdd505}</UniqueIdentifier>
+    </Filter>
     <Filter Include="imgui">
       <UniqueIdentifier>{6a0ad552-13f7-43b4-a25a-1d44fb3cf3b3}</UniqueIdentifier>
     </Filter>
@@ -57,6 +60,9 @@
     </ClCompile>
     <ClCompile Include="CrashHandler.cpp">
       <Filter>Debug\CrashHandler</Filter>
+    </ClCompile>
+    <ClCompile Include="Audio.cpp">
+      <Filter>Audio</Filter>
     </ClCompile>
     <ClCompile Include="MathUtil.cpp">
       <Filter>Math</Filter>
@@ -143,6 +149,9 @@
     </ClInclude>
     <ClInclude Include="D3DResourceLeakChecker.h">
       <Filter>Debug\CrashHandler</Filter>
+    </ClInclude>
+    <ClInclude Include="Audio.h">
+      <Filter>Audio</Filter>
     </ClInclude>
     <ClInclude Include="MathUtil.h">
       <Filter>Math</Filter>
