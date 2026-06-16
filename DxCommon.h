@@ -11,6 +11,7 @@
 
 #include "DebugGui.h"
 #include "MathUtil.h"
+#include "ModelData.h"
 #include "TextureManager.h"
 
 class DXCommon {
@@ -26,12 +27,6 @@ private:
 		int32_t enableLighting;
 		float padding[3];
 		Matrix4x4 uvTransform;
-	};
-
-	struct VertexData {
-		Vector4 position;
-		Vector2 texcoord;
-		Vector3 normal;
 	};
 
 	struct TransformationMatrix {
@@ -51,25 +46,7 @@ private:
 	static constexpr UINT kSRVDescriptorCount = 128;
 	static constexpr UINT kDSVDescriptorCount = 1;
 	static constexpr UINT kImGuiSRVIndex = 0;
-	static constexpr UINT kTextureSRVIndex = 1;
-	static constexpr UINT kMonsterBallTextureSRVIndex = 2;
-
-	// 球の分割数。数を増やすほどなめらかになる
-	static constexpr uint32_t kSphereSubdivision = 16;
-
-	// Indexを使うので、経度と緯度の交点だけ頂点を用意する
-	static constexpr uint32_t kSphereVertexCount =
-		(kSphereSubdivision + 1) * (kSphereSubdivision + 1);
-
-	// 球は1つの四角形を三角形2枚で作るので、1マスあたり6インデックスになる
-	static constexpr uint32_t kSphereIndexCount =
-		kSphereSubdivision * kSphereSubdivision * 6;
-
-	// Spriteは矩形なので頂点は4つ
-	static constexpr uint32_t kSpriteVertexCount = 4;
-
-	// Spriteは三角形2枚で作るので、インデックスは6つ
-	static constexpr uint32_t kSpriteIndexCount = 6;
+	static constexpr UINT kModelTextureSRVIndex = 1;
 
 private:
 	void EnableDebugLayer();
@@ -90,6 +67,7 @@ private:
 	bool CreateDepthStencilResource();
 	bool CreateDSV();
 	bool CreateFence();
+	bool LoadModel();
 	bool CreateTexture();
 	bool CreateDebugGui(HWND hwnd);
 
@@ -113,13 +91,8 @@ private:
 	D3D12_GPU_DESCRIPTOR_HANDLE GetSRVGPUDescriptorHandle(UINT index) const;
 	ID3D12Resource* CreateBufferResource(size_t sizeInBytes);
 	bool CreateVertexResource();
-	bool CreateIndexResource();
-	bool CreateSpriteResource();
-	bool CreateSpriteIndexResource();
 	bool CreateMaterialResource();
-	bool CreateMaterialResourceSprite();
 	bool CreateTransformationMatrixResource();
-	bool CreateSpriteTransformationMatrixResource();
 	bool CreateDirectionalLightResource();
 	void CreateViewportAndScissor();
 
@@ -167,53 +140,21 @@ private:
 	ID3D12Resource* vertexResource_ = nullptr;
 	D3D12_VERTEX_BUFFER_VIEW vertexBufferView_ = {};
 
-	ID3D12Resource* indexResource_ = nullptr;
-	D3D12_INDEX_BUFFER_VIEW indexBufferView_ = {};
-
-	ID3D12Resource* vertexResourceSprite_ = nullptr;
-	D3D12_VERTEX_BUFFER_VIEW vertexBufferViewSprite_ = {};
-
-	ID3D12Resource* indexResourceSprite_ = nullptr;
-	D3D12_INDEX_BUFFER_VIEW indexBufferViewSprite_ = {};
-
 	ID3D12Resource* materialResource_ = nullptr;
 	Material* materialData_ = nullptr;
-
-	ID3D12Resource* materialResourceSprite_ = nullptr;
-	Material* materialDataSprite_ = nullptr;
 
 	ID3D12Resource* transformationMatrixResource_ = nullptr;
 	TransformationMatrix* transformationMatrixData_ = nullptr;
 
-	ID3D12Resource* transformationMatrixResourceSprite_ = nullptr;
-	TransformationMatrix* transformationMatrixDataSprite_ = nullptr;
-
 	ID3D12Resource* directionalLightResource_ = nullptr;
 	DirectionalLight* directionalLightData_ = nullptr;
 
-	TextureManager textureManager_;
-	TextureManager textureManagerMonsterBall_;
+	TextureManager textureManagerModel_;
 	DebugGui debugGui_;
-
-	// 球にMonsterBallTextureを使うかどうか
-	bool useMonsterBall_ = true;
+	ModelData modelData_;
 
 	// 3Dモデル用の座標変換行列の初期値
 	Transform transform_ = {
-		{ 1.0f, 1.0f, 1.0f },
-		{ 0.0f, 0.0f, 0.0f },
-		{ 0.0f, 0.0f, 0.0f },
-	};
-
-	// スプライト用の座標変換行列の初期値
-	Transform transformSprite_ = {
-		{ 1.0f, 1.0f, 1.0f },
-		{ 0.0f, 0.0f, 0.0f },
-		{ 0.0f, 0.0f, 0.0f },
-	};
-
-	// Sprite用のUV座標変換の初期値
-	Transform uvTransform_ = {
 		{ 1.0f, 1.0f, 1.0f },
 		{ 0.0f, 0.0f, 0.0f },
 		{ 0.0f, 0.0f, 0.0f },

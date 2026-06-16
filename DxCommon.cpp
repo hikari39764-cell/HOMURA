@@ -1,7 +1,7 @@
 #include "DxCommon.h"
 
 #include <cassert>
-#include <cmath>
+#include <cstring>
 #include <format>
 #include <d3d12sdklayers.h>
 #include <dxgidebug.h>
@@ -17,6 +17,7 @@
 #pragma comment(lib, "dxcompiler.lib")
 
 #include "Logger.h"
+#include "ModelLoader.h"
 #include "WinConfig.h"
 
 
@@ -92,6 +93,11 @@ bool DXCommon::Initialize(HWND hwnd) {
 		return false;
 	}
 
+	// OBJを読み込んで頂点とMaterial情報を作る
+	if (!LoadModel()) {
+		return false;
+	}
+
 	// Textureを読み込んでShaderから使えるようにする
 	if (!CreateTexture()) {
 		return false;
@@ -107,23 +113,8 @@ bool DXCommon::Initialize(HWND hwnd) {
 		return false;
 	}
 
-	// 球の頂点Resourceを作成する
+	// Model用の頂点Resourceを作成する
 	if (!CreateVertexResource()) {
-		return false;
-	}
-
-	// 球のIndexResourceを作成する
-	if (!CreateIndexResource()) {
-		return false;
-	}
-
-	// Sprite用の頂点Resourceを作成する
-	if (!CreateSpriteResource()) {
-		return false;
-	}
-
-	// Sprite用のIndexResourceを作成する
-	if (!CreateSpriteIndexResource()) {
 		return false;
 	}
 
@@ -132,18 +123,8 @@ bool DXCommon::Initialize(HWND hwnd) {
 		return false;
 	}
 
-	// Sprite用のマテリアルResourceを作成する
-	if (!CreateMaterialResourceSprite()) {
-		return false;
-	}
-
 	// 座標変換用のResourceを作成する
 	if (!CreateTransformationMatrixResource()) {
-		return false;
-	}
-
-	// Sprite用の座標変換Resourceを作成する
-	if (!CreateSpriteTransformationMatrixResource()) {
 		return false;
 	}
 
@@ -262,8 +243,7 @@ void DXCommon::Finalize() {
 	}
 
 	debugGui_.Finalize();
-	textureManagerMonsterBall_.Finalize();
-	textureManager_.Finalize();
+	textureManagerModel_.Finalize();
 
 	if (directionalLightResource_ != nullptr) {
 		directionalLightResource_->Release();
@@ -277,42 +257,15 @@ void DXCommon::Finalize() {
 		transformationMatrixData_ = nullptr;
 	}
 
-	if (transformationMatrixResourceSprite_ != nullptr) {
-		transformationMatrixResourceSprite_->Release();
-		transformationMatrixResourceSprite_ = nullptr;
-		transformationMatrixDataSprite_ = nullptr;
-	}
-
-	if (materialResourceSprite_ != nullptr) {
-		materialResourceSprite_->Release();
-		materialResourceSprite_ = nullptr;
-		materialDataSprite_ = nullptr;
-	}
-
 	if (materialResource_ != nullptr) {
 		materialResource_->Release();
 		materialResource_ = nullptr;
 		materialData_ = nullptr;
 	}
 
-	if (vertexResourceSprite_ != nullptr) {
-		vertexResourceSprite_->Release();
-		vertexResourceSprite_ = nullptr;
-	}
-
-	if (indexResourceSprite_ != nullptr) {
-		indexResourceSprite_->Release();
-		indexResourceSprite_ = nullptr;
-	}
-
 	if (vertexResource_ != nullptr) {
 		vertexResource_->Release();
 		vertexResource_ = nullptr;
-	}
-
-	if (indexResource_ != nullptr) {
-		indexResource_->Release();
-		indexResource_ = nullptr;
 	}
 
 	if (graphicsPipelineState_ != nullptr) {
@@ -467,27 +420,6 @@ void DXCommon::Draw() {
 		}
 	}
 
-	// 球に貼るTextureを切り替える
-	ImGui::Checkbox("useMonsterBall", &useMonsterBall_);
-
-	ImGui::Separator();
-	ImGui::Text("Sprite UVTransform");
-
-	// SpriteのTexture座標を動かすためのUVTransformを編集する
-	ImGui::DragFloat2("UVTranslate", &uvTransform_.translate.x, 0.01f, -10.0f, 10.0f);
-	ImGui::DragFloat2("UVScale", &uvTransform_.scale.x, 0.01f, -10.0f, 10.0f);
-	ImGui::SliderAngle("UVRotate", &uvTransform_.rotate.z);
-	if (ImGui::Button("UVReset")) {
-		// SpriteのUVTransformを初期値に戻して確認しやすくする
-		uvTransform_ = {
-			{ 1.0f, 1.0f, 1.0f },
-			{ 0.0f, 0.0f, 0.0f },
-			{ 0.0f, 0.0f, 0.0f },
-		};
-	}
-
-	ImGui::Separator();
-
 	ImGui::DragFloat3("CameraTranslate", &cameraTransform_.translate.x, 0.01f);
 	ImGui::DragFloat("CameraRotateX", &cameraTransform_.rotate.x, 0.01f);
 	ImGui::DragFloat("CameraRotateY", &cameraTransform_.rotate.y, 0.01f);
@@ -518,13 +450,10 @@ void DXCommon::Draw() {
 	};
 	commandList_->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-	// 球の頂点データをInputAssemblerへ渡す
+	// Modelの頂点データをInputAssemblerへ渡す
 	commandList_->IASetVertexBuffers(0, 1, &vertexBufferView_);
 
-	// 球のインデックスデータをInputAssemblerへ渡す
-	commandList_->IASetIndexBuffer(&indexBufferView_);
-
-	// 三角形リストとして球を描画する
+	// 三角形リストとしてModelを描画する
 	commandList_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
 	// PixelShaderで使うマテリアルCBufferの場所を設定する
@@ -533,38 +462,14 @@ void DXCommon::Draw() {
 	// VertexShaderで使う座標変換CBufferの場所を設定する
 	commandList_->SetGraphicsRootConstantBufferView(1, transformationMatrixResource_->GetGPUVirtualAddress());
 
-	// PixelShaderで使うTexture用SRVのDescriptorTableを設定する
-	// trueならMonsterBall、falseならuvCheckerを使う
-	commandList_->SetGraphicsRootDescriptorTable(
-		2,
-		useMonsterBall_
-			? textureManagerMonsterBall_.GetTextureSrvHandleGPU()
-			: textureManager_.GetTextureSrvHandleGPU()
-	);
+	// PixelShaderで使うModel用TextureのSRVを設定する
+	commandList_->SetGraphicsRootDescriptorTable(2, textureManagerModel_.GetTextureSrvHandleGPU());
 
 	// PixelShaderで使う平行光源CBufferの場所を設定する
 	commandList_->SetGraphicsRootConstantBufferView(3, directionalLightResource_->GetGPUVirtualAddress());
 
-	// 実際に球の描画命令を積む
-	commandList_->DrawIndexedInstanced(kSphereIndexCount, 1, 0, 0, 0);
-
-	// Spriteの頂点データをInputAssemblerへ渡す
-	commandList_->IASetVertexBuffers(0, 1, &vertexBufferViewSprite_);
-
-	// SpriteのインデックスデータをInputAssemblerへ渡す
-	commandList_->IASetIndexBuffer(&indexBufferViewSprite_);
-
-	// PixelShaderで使うSprite用マテリアルCBufferの場所を設定する
-	commandList_->SetGraphicsRootConstantBufferView(0, materialResourceSprite_->GetGPUVirtualAddress());
-
-	// VertexShaderで使うSprite用座標変換CBufferの場所を設定する
-	commandList_->SetGraphicsRootConstantBufferView(1, transformationMatrixResourceSprite_->GetGPUVirtualAddress());
-
-	// SpriteはuvCheckerを表示してUVTransformの動きを確認する
-	commandList_->SetGraphicsRootDescriptorTable(2, textureManager_.GetTextureSrvHandleGPU());
-
-	// 実際にSpriteの描画命令を積む
-	commandList_->DrawIndexedInstanced(kSpriteIndexCount, 1, 0, 0, 0);
+	// OBJのFaceから展開した頂点数で描画命令を積む
+	commandList_->DrawInstanced(static_cast<UINT>(modelData_.vertices.size()), 1, 0, 0);
 
 	// 最後にImGuiを描画して画面の前面に表示する
 	debugGui_.Render(commandList_);
@@ -958,6 +863,25 @@ bool DXCommon::CreateFence() {
 	return true;
 }
 
+bool DXCommon::LoadModel() {
+	// ResourcesフォルダのOBJを読み込んでModelDataにする
+	modelData_ = LoadObjFile("Resources", "plane.obj");
+	assert(!modelData_.vertices.empty());
+	assert(!modelData_.material.textureFilePath.empty());
+
+	if (modelData_.vertices.empty() || modelData_.material.textureFilePath.empty()) {
+		return false;
+	}
+
+	Log(std::format(
+		"Complete load model, vertices:{}, texture:{}!!!\n",
+		modelData_.vertices.size(),
+		modelData_.material.textureFilePath
+	));
+
+	return true;
+}
+
 bool DXCommon::CreateTexture() {
 	// resources内のTextureを読み込んでShaderから使えるようにする
 	// Texture転送用のCommandListを記録できる状態にする
@@ -975,50 +899,25 @@ bool DXCommon::CreateTexture() {
 		return false;
 	}
 
-	ID3D12Resource* uvCheckerIntermediateResource = nullptr;
-	ID3D12Resource* monsterBallIntermediateResource = nullptr;
+	ID3D12Resource* modelIntermediateResource = nullptr;
 
-	// 1枚目のTextureとしてuvCheckerを読み込む
-	if (!textureManager_.Initialize(
+	auto releaseIntermediateResources = [&]() {
+		if (modelIntermediateResource != nullptr) {
+			modelIntermediateResource->Release();
+			modelIntermediateResource = nullptr;
+		}
+	};
+
+	// OBJのMaterialで指定されたTextureを読み込む
+	if (!textureManagerModel_.Initialize(
 		device_,
 		commandList_,
-		"Resources/uvChecker.png",
-		GetSRVCPUDescriptorHandle(kTextureSRVIndex),
-		GetSRVGPUDescriptorHandle(kTextureSRVIndex),
-		&uvCheckerIntermediateResource
+		modelData_.material.textureFilePath,
+		GetSRVCPUDescriptorHandle(kModelTextureSRVIndex),
+		GetSRVGPUDescriptorHandle(kModelTextureSRVIndex),
+		&modelIntermediateResource
 	)) {
-		if (uvCheckerIntermediateResource != nullptr) {
-			uvCheckerIntermediateResource->Release();
-			uvCheckerIntermediateResource = nullptr;
-		}
-
-		if (monsterBallIntermediateResource != nullptr) {
-			monsterBallIntermediateResource->Release();
-			monsterBallIntermediateResource = nullptr;
-		}
-
-		return false;
-	}
-
-	// 2枚目のTextureとしてmonsterBallを読み込む
-	if (!textureManagerMonsterBall_.Initialize(
-		device_,
-		commandList_,
-		"Resources/monsterBall.png",
-		GetSRVCPUDescriptorHandle(kMonsterBallTextureSRVIndex),
-		GetSRVGPUDescriptorHandle(kMonsterBallTextureSRVIndex),
-		&monsterBallIntermediateResource
-	)) {
-		if (uvCheckerIntermediateResource != nullptr) {
-			uvCheckerIntermediateResource->Release();
-			uvCheckerIntermediateResource = nullptr;
-		}
-
-		if (monsterBallIntermediateResource != nullptr) {
-			monsterBallIntermediateResource->Release();
-			monsterBallIntermediateResource = nullptr;
-		}
-
+		releaseIntermediateResources();
 		return false;
 	}
 
@@ -1027,16 +926,7 @@ bool DXCommon::CreateTexture() {
 	assert(SUCCEEDED(hr));
 
 	if (FAILED(hr)) {
-		if (uvCheckerIntermediateResource != nullptr) {
-			uvCheckerIntermediateResource->Release();
-			uvCheckerIntermediateResource = nullptr;
-		}
-
-		if (monsterBallIntermediateResource != nullptr) {
-			monsterBallIntermediateResource->Release();
-			monsterBallIntermediateResource = nullptr;
-		}
-
+		releaseIntermediateResources();
 		return false;
 	}
 
@@ -1046,15 +936,7 @@ bool DXCommon::CreateTexture() {
 	// 転送が完了するまで中間Resourceは保持しておく
 	WaitForGpu();
 
-	if (uvCheckerIntermediateResource != nullptr) {
-		uvCheckerIntermediateResource->Release();
-		uvCheckerIntermediateResource = nullptr;
-	}
-
-	if (monsterBallIntermediateResource != nullptr) {
-		monsterBallIntermediateResource->Release();
-		monsterBallIntermediateResource = nullptr;
-	}
+	releaseIntermediateResources();
 
 	return true;
 }
@@ -1411,6 +1293,9 @@ bool DXCommon::CreateGraphicsPipelineState() {
 	// 裏面を表示しない
 	rasterizerDesc.CullMode = D3D12_CULL_MODE_BACK;
 
+	// OBJを左手座標系に変換して逆順で積んだ面を表として扱う
+	rasterizerDesc.FrontCounterClockwise = true;
+
 	// 三角形の中を塗りつぶす
 	rasterizerDesc.FillMode = D3D12_FILL_MODE_SOLID;
 
@@ -1628,15 +1513,22 @@ ID3D12Resource* DXCommon::CreateBufferResource(size_t sizeInBytes) {
 }
 
 bool DXCommon::CreateVertexResource() {
-	// 球用の頂点Resourceを作成する
-	vertexResource_ = CreateBufferResource(sizeof(VertexData) * kSphereVertexCount);
+	assert(!modelData_.vertices.empty());
+
+	if (modelData_.vertices.empty()) {
+		return false;
+	}
+
+	// Model用の頂点Resourceを作成する
+	const size_t vertexBufferSize = sizeof(VertexData) * modelData_.vertices.size();
+	vertexResource_ = CreateBufferResource(vertexBufferSize);
 	assert(vertexResource_ != nullptr);
 
 	if (vertexResource_ == nullptr) {
 		return false;
 	}
 
-	// 頂点Resourceにデータを書き込む
+	// Model用の頂点ResourceにOBJから読んだデータを書き込む
 	VertexData* vertexData = nullptr;
 
 	// 書き込み用のアドレスを取得する
@@ -1651,203 +1543,14 @@ bool DXCommon::CreateVertexResource() {
 		return false;
 	}
 
-	// 円周率
-	const float kPi = 3.14159265358979323846f;
-
-	// 経度方向の1分割分の角度
-	const float kLonEvery = kPi * 2.0f / float(kSphereSubdivision);
-
-	// 緯度方向の1分割分の角度
-	const float kLatEvery = kPi / float(kSphereSubdivision);
-
-	// 緯度方向に分割する。Indexで共有するので、端の頂点も含めて作成する
-	for (uint32_t latIndex = 0; latIndex <= kSphereSubdivision; ++latIndex) {
-		// 緯度。下から上へ作っていくため、最初は -π/2
-		float lat = -kPi / 2.0f + kLatEvery * float(latIndex);
-
-		// 経度方向に分割する。UVのつなぎ目用に最後の列も作成する
-		for (uint32_t lonIndex = 0; lonIndex <= kSphereSubdivision; ++lonIndex) {
-			// 今から書き込む頂点の先頭番号
-			uint32_t vertexIndex = latIndex * (kSphereSubdivision + 1) + lonIndex;
-
-			// 経度
-			float lon = kLonEvery * float(lonIndex);
-
-			// 球面上の頂点位置
-			Vector4 position = {
-				std::cos(lat) * std::cos(lon),
-				std::sin(lat),
-				std::cos(lat) * std::sin(lon),
-				1.0f
-			};
-
-			// Texture用のUV座標を計算する
-			float u = float(lonIndex) / float(kSphereSubdivision);
-			float v = 1.0f - float(latIndex) / float(kSphereSubdivision);
-
-			vertexData[vertexIndex].position = position;
-			vertexData[vertexIndex].texcoord = { u, v };
-			vertexData[vertexIndex].normal = { position.x, position.y, position.z };
-		}
-	}
+	std::memcpy(vertexData, modelData_.vertices.data(), vertexBufferSize);
 
 	// 頂点バッファビューを作成する
 	vertexBufferView_.BufferLocation = vertexResource_->GetGPUVirtualAddress();
-	vertexBufferView_.SizeInBytes = static_cast<UINT>(sizeof(VertexData) * kSphereVertexCount);
+	vertexBufferView_.SizeInBytes = static_cast<UINT>(vertexBufferSize);
 	vertexBufferView_.StrideInBytes = sizeof(VertexData);
 
-	Log("Complete create Sphere VertexResource!!!\n");
-
-	return true;
-}
-
-bool DXCommon::CreateIndexResource() {
-	// 球用のIndexResourceを作成する
-	indexResource_ = CreateBufferResource(sizeof(uint32_t) * kSphereIndexCount);
-	assert(indexResource_ != nullptr);
-
-	if (indexResource_ == nullptr) {
-		return false;
-	}
-
-	// IndexResourceにデータを書き込む
-	uint32_t* indexData = nullptr;
-
-	// 書き込み用のアドレスを取得する
-	HRESULT hr = indexResource_->Map(
-		0,
-		nullptr,
-		reinterpret_cast<void**>(&indexData)
-	);
-	assert(SUCCEEDED(hr));
-
-	if (FAILED(hr)) {
-		return false;
-	}
-
-	// 球の各マスを2枚の三角形にする
-	for (uint32_t latIndex = 0; latIndex < kSphereSubdivision; ++latIndex) {
-		for (uint32_t lonIndex = 0; lonIndex < kSphereSubdivision; ++lonIndex) {
-			uint32_t start = (latIndex * kSphereSubdivision + lonIndex) * 6;
-
-			uint32_t leftBottom = latIndex * (kSphereSubdivision + 1) + lonIndex;
-			uint32_t leftTop = (latIndex + 1) * (kSphereSubdivision + 1) + lonIndex;
-			uint32_t rightBottom = latIndex * (kSphereSubdivision + 1) + lonIndex + 1;
-			uint32_t rightTop = (latIndex + 1) * (kSphereSubdivision + 1) + lonIndex + 1;
-
-			// 1枚目の三角形
-			indexData[start + 0] = leftBottom;
-			indexData[start + 1] = leftTop;
-			indexData[start + 2] = rightBottom;
-
-			// 2枚目の三角形
-			indexData[start + 3] = rightBottom;
-			indexData[start + 4] = leftTop;
-			indexData[start + 5] = rightTop;
-		}
-	}
-
-	// 球用のインデックスバッファビューを作成する
-	indexBufferView_.BufferLocation = indexResource_->GetGPUVirtualAddress();
-	indexBufferView_.SizeInBytes = static_cast<UINT>(sizeof(uint32_t) * kSphereIndexCount);
-	indexBufferView_.Format = DXGI_FORMAT_R32_UINT;
-
-	Log("Complete create Sphere IndexResource!!!\n");
-
-	return true;
-}
-
-bool DXCommon::CreateSpriteResource() {
-	// Sprite用の頂点Resourceを作成する。Indexを使うので4頂点だけ用意する
-	vertexResourceSprite_ = CreateBufferResource(sizeof(VertexData) * kSpriteVertexCount);
-	assert(vertexResourceSprite_ != nullptr);
-
-	if (vertexResourceSprite_ == nullptr) {
-		return false;
-	}
-
-	// Sprite用の頂点Resourceにデータを書き込む
-	VertexData* vertexDataSprite = nullptr;
-
-	// 書き込み用のアドレスを取得する
-	HRESULT hr = vertexResourceSprite_->Map(
-		0,
-		nullptr,
-		reinterpret_cast<void**>(&vertexDataSprite)
-	);
-	assert(SUCCEEDED(hr));
-
-	if (FAILED(hr)) {
-		return false;
-	}
-
-	vertexDataSprite[0].position = { 0.0f, 360.0f, 0.0f, 1.0f };		// 左下
-	vertexDataSprite[0].texcoord = { 0.0f, 1.0f };
-
-	vertexDataSprite[1].position = { 0.0f, 0.0f, 0.0f, 1.0f };		// 左上
-	vertexDataSprite[1].texcoord = { 0.0f, 0.0f };
-
-	vertexDataSprite[2].position = { 640.0f, 360.0f, 0.0f, 1.0f };	// 右下
-	vertexDataSprite[2].texcoord = { 1.0f, 1.0f };
-
-	vertexDataSprite[3].position = { 640.0f, 0.0f, 0.0f, 1.0f };		// 右上
-	vertexDataSprite[3].texcoord = { 1.0f, 0.0f };
-
-	// Spriteは画面に向いた板なので、法線は-Z方向にしておく
-	for (uint32_t index = 0; index < kSpriteVertexCount; ++index) {
-		vertexDataSprite[index].normal = { 0.0f, 0.0f, -1.0f };
-	}
-
-	// Sprite用の頂点バッファビューを作成する
-	vertexBufferViewSprite_.BufferLocation = vertexResourceSprite_->GetGPUVirtualAddress();
-	vertexBufferViewSprite_.SizeInBytes = static_cast<UINT>(sizeof(VertexData) * kSpriteVertexCount);
-	vertexBufferViewSprite_.StrideInBytes = sizeof(VertexData);
-
-	Log("Complete create Sprite VertexResource!!!\n");
-
-	return true;
-}
-
-bool DXCommon::CreateSpriteIndexResource() {
-	// Sprite用のIndexResourceを作成する
-	indexResourceSprite_ = CreateBufferResource(sizeof(uint32_t) * kSpriteIndexCount);
-	assert(indexResourceSprite_ != nullptr);
-
-	if (indexResourceSprite_ == nullptr) {
-		return false;
-	}
-
-	// Sprite用のIndexResourceにデータを書き込む
-	uint32_t* indexDataSprite = nullptr;
-
-	// 書き込み用のアドレスを取得する
-	HRESULT hr = indexResourceSprite_->Map(
-		0,
-		nullptr,
-		reinterpret_cast<void**>(&indexDataSprite)
-	);
-	assert(SUCCEEDED(hr));
-
-	if (FAILED(hr)) {
-		return false;
-	}
-
-	// 1枚目の三角形
-	indexDataSprite[0] = 0;
-	indexDataSprite[1] = 1;
-	indexDataSprite[2] = 2;
-
-	// 2枚目の三角形
-	indexDataSprite[3] = 1;
-	indexDataSprite[4] = 3;
-	indexDataSprite[5] = 2;
-
-	// Sprite用のインデックスバッファビューを作成する
-	indexBufferViewSprite_.BufferLocation = indexResourceSprite_->GetGPUVirtualAddress();
-	indexBufferViewSprite_.SizeInBytes = static_cast<UINT>(sizeof(uint32_t) * kSpriteIndexCount);
-	indexBufferViewSprite_.Format = DXGI_FORMAT_R32_UINT;
-
-	Log("Complete create Sprite IndexResource!!!\n");
+	Log("Complete create Model VertexResource!!!\n");
 
 	return true;
 }
@@ -1875,7 +1578,7 @@ bool DXCommon::CreateMaterialResource() {
 	// Textureの色をそのまま見やすくするため白色を設定する
 	materialData_->color = { 1.0f, 1.0f, 1.0f, 1.0f };
 
-	// 球はLightingする
+	// ModelはLightingする
 	materialData_->enableLighting = true;
 	materialData_->padding[0] = 0.0f;
 	materialData_->padding[1] = 0.0f;
@@ -1885,43 +1588,6 @@ bool DXCommon::CreateMaterialResource() {
 	materialData_->uvTransform = MakeIdentity4x4();
 
 	Log("Complete create MaterialResource!!!\n");
-
-	return true;
-}
-
-bool DXCommon::CreateMaterialResourceSprite() {
-	// Sprite用のマテリアルResourceを作成する
-	materialResourceSprite_ = CreateBufferResource(sizeof(Material));
-	assert(materialResourceSprite_ != nullptr);
-
-	if (materialResourceSprite_ == nullptr) {
-		return false;
-	}
-
-	// Sprite用のマテリアルResourceにデータを書き込む
-	materialDataSprite_ = nullptr;
-
-	// 書き込み用のアドレスを取得する
-	HRESULT hr = materialResourceSprite_->Map(0, nullptr, reinterpret_cast<void**>(&materialDataSprite_));
-	assert(SUCCEEDED(hr));
-
-	if (FAILED(hr)) {
-		return false;
-	}
-
-	// SpriteもTextureの色をそのまま見やすくするため白色を設定する
-	materialDataSprite_->color = { 1.0f, 1.0f, 1.0f, 1.0f };
-
-	// SpriteはLightingしない
-	materialDataSprite_->enableLighting = false;
-	materialDataSprite_->padding[0] = 0.0f;
-	materialDataSprite_->padding[1] = 0.0f;
-	materialDataSprite_->padding[2] = 0.0f;
-
-	// 最初は単位行列を設定する
-	materialDataSprite_->uvTransform = MakeIdentity4x4();
-
-	Log("Complete create Sprite MaterialResource!!!\n");
 
 	return true;
 }
@@ -1993,46 +1659,10 @@ bool DXCommon::CreateTransformationMatrixResource() {
 	return true;
 }
 
-bool DXCommon::CreateSpriteTransformationMatrixResource() {
-	// Sprite用の座標変換Resourceを作成する
-	transformationMatrixResourceSprite_ = CreateBufferResource(sizeof(TransformationMatrix));
-	assert(transformationMatrixResourceSprite_ != nullptr);
-
-	if (transformationMatrixResourceSprite_ == nullptr) {
-		return false;
-	}
-
-	// Sprite用の座標変換Resourceにデータを書き込む
-	transformationMatrixDataSprite_ = nullptr;
-
-	// 書き込み用のアドレスを取得する
-	HRESULT hr = transformationMatrixResourceSprite_->Map(
-		0,
-		nullptr,
-		reinterpret_cast<void**>(&transformationMatrixDataSprite_)
-	);
-	assert(SUCCEEDED(hr));
-
-	if (FAILED(hr)) {
-		return false;
-	}
-
-	// 最初は単位行列を設定する
-	transformationMatrixDataSprite_->WVP = MakeIdentity4x4();
-	transformationMatrixDataSprite_->World = MakeIdentity4x4();
-
-	Log("Complete create Sprite TransformationMatrixResource!!!\n");
-
-	return true;
-}
-
 void DXCommon::UpdateTransformationMatrix() {
-	if (transformationMatrixData_ == nullptr || transformationMatrixDataSprite_ == nullptr) {
+	if (transformationMatrixData_ == nullptr) {
 		return;
 	}
-
-	// Y軸回転で球を動かす
-	transform_.rotate.y += 0.03f;
 
 	// オブジェクトのWorldMatrixを作成する
 	Matrix4x4 worldMatrix = MakeAffineMatrix(
@@ -2067,43 +1697,6 @@ void DXCommon::UpdateTransformationMatrix() {
 	// VertexShaderへ渡す行列を更新する
 	transformationMatrixData_->WVP = worldViewProjectionMatrix;
 	transformationMatrixData_->World = worldMatrix;
-
-	// Spriteは画面座標で扱うので、正射影行列を使う
-	Matrix4x4 worldMatrixSprite = MakeAffineMatrix(
-		transformSprite_.scale,
-		transformSprite_.rotate,
-		transformSprite_.translate
-	);
-
-	Matrix4x4 viewMatrixSprite = MakeIdentity4x4();
-
-	Matrix4x4 projectionMatrixSprite = MakeOrthographicMatrix(
-		0.0f,
-		0.0f,
-		float(WinConfig::kClientWidth),
-		float(WinConfig::kClientHeight),
-		0.0f,
-		100.0f
-	);
-
-	Matrix4x4 worldViewProjectionMatrixSprite = Multiply(
-		worldMatrixSprite,
-		Multiply(viewMatrixSprite, projectionMatrixSprite)
-	);
-
-	// Sprite用の座標変換行列を更新する
-	transformationMatrixDataSprite_->WVP = worldViewProjectionMatrixSprite;
-	transformationMatrixDataSprite_->World = worldMatrixSprite;
-
-	// UVTransformはSRTの順で作成する
-	Matrix4x4 uvTransformMatrix = MakeScaleMatrix(uvTransform_.scale);
-	uvTransformMatrix = Multiply(uvTransformMatrix, MakeRotateZMatrix(uvTransform_.rotate.z));
-	uvTransformMatrix = Multiply(uvTransformMatrix, MakeTranslateMatrix(uvTransform_.translate));
-
-	if (materialDataSprite_ != nullptr) {
-		// SpriteだけにUVTransformを反映する
-		materialDataSprite_->uvTransform = uvTransformMatrix;
-	}
 }
 
 void DXCommon::CreateViewportAndScissor() {
