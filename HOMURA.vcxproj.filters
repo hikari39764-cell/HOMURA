@@ -64,6 +64,9 @@
     <ClCompile Include="CrashHandler.cpp">
       <Filter>Debug\CrashHandler</Filter>
     </ClCompile>
+    <ClCompile Include="DebugCamera.cpp">
+      <Filter>Debug</Filter>
+    </ClCompile>
     <ClCompile Include="Audio.cpp">
       <Filter>Audio</Filter>
     </ClCompile>
@@ -155,6 +158,9 @@
     </ClInclude>
     <ClInclude Include="D3DResourceLeakChecker.h">
       <Filter>Debug\CrashHandler</Filter>
+    </ClInclude>
+    <ClInclude Include="DebugCamera.h">
+      <Filter>Debug</Filter>
     </ClInclude>
     <ClInclude Include="Audio.h">
       <Filter>Audio</Filter>

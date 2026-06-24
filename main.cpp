@@ -67,6 +67,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int showCmd) {
 						break;
 					}
 
+					// 入力をもとにデバッグカメラなどの更新を行う
+					dxCommon.Update(input);
+
 					// 再生が終わったSourceVoiceを毎フレーム片付ける
 					audio.Update();
 

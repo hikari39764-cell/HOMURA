@@ -16,6 +16,7 @@
 #pragma comment(lib, "dxcompiler.lib")
 
 #include "Logger.h"
+#include "Input.h"
 #include "ModelLoader.h"
 #include "WinConfig.h"
 
@@ -135,6 +136,9 @@ bool DXCommon::Initialize(HWND hwnd) {
 	// 画面全体に描画するためのViewportとScissorを設定する
 	CreateViewportAndScissor();
 
+	// デバッグカメラの射影行列を画面比率に合わせて初期化する
+	debugCamera_.Initialize(float(WinConfig::kClientWidth) / float(WinConfig::kClientHeight));
+
 	return true;
 }
 
@@ -220,6 +224,16 @@ void DXCommon::Finalize() {
 	}
 }
 
+void DXCommon::Update(const Input& input) {
+	if (input.IsTriggerKey(DIK_F1)) {
+		useDebugCamera_ = !useDebugCamera_;
+	}
+
+	if (useDebugCamera_) {
+		debugCamera_.Update(input);
+	}
+}
+
 void DXCommon::Draw() {
 	// 今から書き込むBackBufferの番号をSwapChainから取得する
 	UINT backBufferIndex = swapChain_->GetCurrentBackBufferIndex();
@@ -286,10 +300,16 @@ void DXCommon::Draw() {
 		}
 	}
 
-	ImGui::DragFloat3("CameraTranslate", &cameraTransform_.translate.x, 0.01f);
-	ImGui::DragFloat("CameraRotateX", &cameraTransform_.rotate.x, 0.01f);
-	ImGui::DragFloat("CameraRotateY", &cameraTransform_.rotate.y, 0.01f);
-	ImGui::DragFloat("CameraRotateZ", &cameraTransform_.rotate.z, 0.01f);
+	ImGui::Checkbox("UseDebugCamera(F1)", &useDebugCamera_);
+
+	if (useDebugCamera_) {
+		ImGui::Text("RightDrag:Look  WASD/QE:Move  ZC:Roll  Shift:Fast  R:Reset");
+	} else {
+		ImGui::DragFloat3("CameraTranslate", &cameraTransform_.translate.x, 0.01f);
+		ImGui::DragFloat("CameraRotateX", &cameraTransform_.rotate.x, 0.01f);
+		ImGui::DragFloat("CameraRotateY", &cameraTransform_.rotate.y, 0.01f);
+		ImGui::DragFloat("CameraRotateZ", &cameraTransform_.rotate.z, 0.01f);
+	}
 
 	if (directionalLightData_ != nullptr) {
 		ImGui::ColorEdit4("LightColor", &directionalLightData_->color.x);
@@ -1402,21 +1422,12 @@ void DXCommon::UpdateTransformationMatrix() {
 	);
 
 	// カメラのViewMatrixを作成する
-	Matrix4x4 cameraMatrix = MakeAffineMatrix(
-		cameraTransform_.scale,
-		cameraTransform_.rotate,
-		cameraTransform_.translate
-	);
-
-	Matrix4x4 viewMatrix = Inverse(cameraMatrix);
+	Matrix4x4 viewMatrix =
+		useDebugCamera_ ? debugCamera_.GetViewMatrix() : CreateDefaultViewMatrix();
 
 	// 透視投影行列を作成する
-	Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(
-		0.45f,
-		float(WinConfig::kClientWidth) / float(WinConfig::kClientHeight),
-		0.1f,
-		100.0f
-	);
+	Matrix4x4 projectionMatrix =
+		useDebugCamera_ ? debugCamera_.GetProjectionMatrix() : CreateProjectionMatrix();
 
 	// World、View、Projectionをまとめる
 	Matrix4x4 worldViewProjectionMatrix = Multiply(
@@ -1427,6 +1438,27 @@ void DXCommon::UpdateTransformationMatrix() {
 	// VertexShaderへ渡す行列を更新する
 	transformationMatrixData_->WVP = worldViewProjectionMatrix;
 	transformationMatrixData_->World = worldMatrix;
+}
+
+Matrix4x4 DXCommon::CreateDefaultViewMatrix() const {
+	// 通常カメラのViewMatrixを作成する
+	Matrix4x4 cameraMatrix = MakeAffineMatrix(
+		cameraTransform_.scale,
+		cameraTransform_.rotate,
+		cameraTransform_.translate
+	);
+
+	return Inverse(cameraMatrix);
+}
+
+Matrix4x4 DXCommon::CreateProjectionMatrix() const {
+	// 透視投影行列を作成する
+	return MakePerspectiveFovMatrix(
+		0.45f,
+		float(WinConfig::kClientWidth) / float(WinConfig::kClientHeight),
+		0.1f,
+		100.0f
+	);
 }
 
 void DXCommon::CreateViewportAndScissor() {

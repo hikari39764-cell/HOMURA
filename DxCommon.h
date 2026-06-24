@@ -10,16 +10,20 @@
 #include <cstddef>
 #include <string>
 
+#include "DebugCamera.h"
 #include "DebugGui.h"
 #include "MathUtil.h"
 #include "ModelData.h"
 #include "TextureManager.h"
+
+class Input;
 
 class DXCommon {
 public:
 	bool Initialize(HWND hwnd);
 	void Finalize();
 
+	void Update(const Input& input);
 	void Draw();
 
 private:
@@ -105,6 +109,8 @@ private:
 	);
 
 	void UpdateTransformationMatrix();
+	Matrix4x4 CreateDefaultViewMatrix() const;
+	Matrix4x4 CreateProjectionMatrix() const;
 
 	void WaitForGpu();
 
@@ -166,6 +172,9 @@ private:
 		{ 0.0f, 0.0f, 0.0f },
 		{ 0.0f, 0.0f, -10.0f },
 	};
+
+	DebugCamera debugCamera_;
+	bool useDebugCamera_ = false;
 
 	D3D12_VIEWPORT viewport_ = {};
 	D3D12_RECT scissorRect_ = {};
