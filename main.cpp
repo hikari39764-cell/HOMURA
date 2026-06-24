@@ -8,10 +8,11 @@
 #include "CrashHandler.h"
 #include "D3DResourceLeakChecker.h"
 #include "Audio.h"
+#include "Input.h"
 
 #pragma comment(lib, "ole32.lib")
 
-int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int showCmd) {
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int showCmd) {
 	HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 	assert(SUCCEEDED(hr));
 
@@ -31,12 +32,15 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int showCmd) {
 		WinApp winApp;
 		DXCommon dxCommon;
 		Audio audio;
+		Input input;
 
 		if (!winApp.Initialize(showCmd)) {
 			result = -1;
 		} else if (!dxCommon.Initialize(winApp.GetHwnd())) {
 			result = -1;
 		} else if (!audio.Initialize()) {
+			result = -1;
+		} else if (!input.Initialize(hInstance, winApp.GetHwnd())) {
 			result = -1;
 		} else {
 			// 再生テスト用のwavファイルを読み込んで、アプリ起動時に一度だけ鳴らす
@@ -50,6 +54,19 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int showCmd) {
 						break;
 					}
 
+					// キーボード入力を毎フレーム更新する
+					input.Update();
+
+					// 入力確認用。0キーを押した瞬間だけ出力する
+					if (input.IsTriggerKey(DIK_0)) {
+						OutputDebugStringA("Ohhhhhhhhh\n");
+					}
+
+					// デバッグ用にEscapeキーでアプリを終了できるようにする
+					if (input.IsTriggerKey(DIK_ESCAPE)) {
+						break;
+					}
+
 					// 再生が終わったSourceVoiceを毎フレーム片付ける
 					audio.Update();
 
@@ -59,6 +76,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int showCmd) {
 			}
 		}
 
+		input.Finalize();
 		audio.Finalize();
 		dxCommon.Finalize();
 		winApp.Finalize();

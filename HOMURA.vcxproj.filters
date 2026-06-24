@@ -34,6 +34,9 @@
     <Filter Include="Audio">
       <UniqueIdentifier>{9bcf7db9-cf71-4f33-b69f-5aa7b0fdd505}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Input">
+      <UniqueIdentifier>{ed48e95d-d2f2-4ed5-9121-57983095c362}</UniqueIdentifier>
+    </Filter>
     <Filter Include="imgui">
       <UniqueIdentifier>{6a0ad552-13f7-43b4-a25a-1d44fb3cf3b3}</UniqueIdentifier>
     </Filter>
@@ -63,6 +66,9 @@
     </ClCompile>
     <ClCompile Include="Audio.cpp">
       <Filter>Audio</Filter>
+    </ClCompile>
+    <ClCompile Include="Input.cpp">
+      <Filter>Input</Filter>
     </ClCompile>
     <ClCompile Include="MathUtil.cpp">
       <Filter>Math</Filter>
@@ -152,6 +158,9 @@
     </ClInclude>
     <ClInclude Include="Audio.h">
       <Filter>Audio</Filter>
+    </ClInclude>
+    <ClInclude Include="Input.h">
+      <Filter>Input</Filter>
     </ClInclude>
     <ClInclude Include="MathUtil.h">
       <Filter>Math</Filter>

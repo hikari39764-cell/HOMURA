@@ -103,6 +103,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     <ClCompile Include="CrashHandler.cpp" />
     <ClCompile Include="DebugGui.cpp" />
     <ClCompile Include="DxCommon.cpp" />
+    <ClCompile Include="Input.cpp" />
     <ClCompile Include="externals\DirectXTex\BC.cpp" />
     <ClCompile Include="externals\DirectXTex\BC4BC5.cpp" />
     <ClCompile Include="externals\DirectXTex\BC6HBC7.cpp" />
@@ -148,6 +149,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     <ClInclude Include="D3DResourceLeakChecker.h" />
     <ClInclude Include="DebugGui.h" />
     <ClInclude Include="DxCommon.h" />
+    <ClInclude Include="Input.h" />
     <ClInclude Include="externals\imgui\imconfig.h" />
     <ClInclude Include="externals\imgui\imgui.h" />
     <ClInclude Include="externals\imgui\imgui_impl_dx12.h" />
