@@ -8,7 +8,7 @@
 
 #pragma comment(lib, "windowscodecs.lib")
 
-#include "Logger.h"
+#include "DebugTools/Logger/Logger.h"
 
 namespace {
 

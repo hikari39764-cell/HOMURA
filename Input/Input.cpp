@@ -4,7 +4,7 @@
 #include <cstddef>
 #include <cstring>
 
-#include "Logger.h"
+#include "DebugTools/Logger/Logger.h"
 
 #pragma comment(lib, "dinput8.lib")
 #pragma comment(lib, "dxguid.lib")

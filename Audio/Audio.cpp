@@ -7,7 +7,7 @@
 #include <format>
 #include <fstream>
 
-#include "Logger.h"
+#include "DebugTools/Logger/Logger.h"
 
 #pragma comment(lib, "xaudio2.lib")
 

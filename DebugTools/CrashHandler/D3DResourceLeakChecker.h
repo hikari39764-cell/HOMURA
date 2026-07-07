@@ -3,7 +3,7 @@
 #include <dxgidebug.h>
 #include <wrl.h>
 
-#include "Logger.h"
+#include "DebugTools/Logger/Logger.h"
 
 struct D3DResourceLeakChecker {
 	~D3DResourceLeakChecker() {

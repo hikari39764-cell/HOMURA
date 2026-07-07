@@ -2,13 +2,13 @@
 
 #include <cassert>
 
-#include "WinApp.h"
-#include "Logger.h"
-#include "DxCommon.h"
-#include "CrashHandler.h"
-#include "D3DResourceLeakChecker.h"
-#include "Audio.h"
-#include "Input.h"
+#include "WinApp/WinApp.h"
+#include "DebugTools/Logger/Logger.h"
+#include "DxCommon/DxCommon.h"
+#include "DebugTools/CrashHandler/CrashHandler.h"
+#include "DebugTools/CrashHandler/D3DResourceLeakChecker.h"
+#include "Audio/Audio.h"
+#include "Input/Input.h"
 
 #pragma comment(lib, "ole32.lib")
 

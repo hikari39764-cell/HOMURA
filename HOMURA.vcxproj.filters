@@ -13,11 +13,32 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="App">
+      <UniqueIdentifier>{5f570dd4-a6bb-4ec0-844f-2fa63d0c4e60}</UniqueIdentifier>
+    </Filter>
     <Filter Include="WinApp">
       <UniqueIdentifier>{acb99a63-2744-4ba2-9951-a2c2082ea478}</UniqueIdentifier>
     </Filter>
     <Filter Include="DxCommon">
       <UniqueIdentifier>{abdec8bd-538f-40a7-9ef6-f846add2f99a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Renderer">
+      <UniqueIdentifier>{72e4bead-bc3d-4591-a78e-7d6d6bc8bb27}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Shaders">
+      <UniqueIdentifier>{1b2e9ae9-e373-4ef3-a7a4-5c2387f19b26}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Model">
+      <UniqueIdentifier>{b7194b03-8909-4562-a0f8-459d6de2b45b}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Texture">
+      <UniqueIdentifier>{a3d9cf87-5371-48dd-b06f-22f27b82431b}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="External">
+      <UniqueIdentifier>{eab31c62-c14e-4b5e-82fb-d5ae101a7d7b}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="External\DirectXTex">
+      <UniqueIdentifier>{d9029c55-501f-426f-a35b-9eaf8a4722d1}</UniqueIdentifier>
     </Filter>
     <Filter Include="Debug">
       <UniqueIdentifier>{f444d58c-b3c1-4ca4-8311-de30b7c7f134}</UniqueIdentifier>
@@ -46,74 +67,79 @@
   </ItemGroup>
   <ItemGroup>
     <None Include=".editorconfig" />
-    <None Include="Object3d.hlsli" />
+    <None Include="Shaders\Object3d.hlsli">
+      <Filter>Shaders</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="main.cpp">
-      <Filter>ソース ファイル</Filter>
+    <ClCompile Include="App\main.cpp">
+      <Filter>App</Filter>
     </ClCompile>
-    <ClCompile Include="WinApp.cpp">
+    <ClCompile Include="WinApp\WinApp.cpp">
       <Filter>WinApp</Filter>
     </ClCompile>
-    <ClCompile Include="Logger.cpp">
+    <ClCompile Include="DebugTools\Logger\Logger.cpp">
       <Filter>Debug\Log</Filter>
     </ClCompile>
-    <ClCompile Include="DxCommon.cpp">
+    <ClCompile Include="DxCommon\DxCommon.cpp">
       <Filter>DxCommon</Filter>
     </ClCompile>
-    <ClCompile Include="CrashHandler.cpp">
+    <ClCompile Include="DebugTools\CrashHandler\CrashHandler.cpp">
       <Filter>Debug\CrashHandler</Filter>
     </ClCompile>
-    <ClCompile Include="DebugCamera.cpp">
+    <ClCompile Include="DebugTools\DebugCamera.cpp">
       <Filter>Debug</Filter>
     </ClCompile>
-    <ClCompile Include="Audio.cpp">
+    <ClCompile Include="Audio\Audio.cpp">
       <Filter>Audio</Filter>
     </ClCompile>
-    <ClCompile Include="Input.cpp">
+    <ClCompile Include="Input\Input.cpp">
       <Filter>Input</Filter>
     </ClCompile>
-    <ClCompile Include="MathUtil.cpp">
+    <ClCompile Include="Math\MathUtil.cpp">
       <Filter>Math</Filter>
     </ClCompile>
-    <ClCompile Include="TextureManager.cpp">
-      <Filter>DxCommon</Filter>
+    <ClCompile Include="Texture\TextureManager.cpp">
+      <Filter>Texture</Filter>
     </ClCompile>
-    <ClCompile Include="ModelLoader.cpp">
-      <Filter>DxCommon</Filter>
+    <ClCompile Include="Model\ModelLoader.cpp">
+      <Filter>Model</Filter>
+    </ClCompile>
+    <ClCompile Include="Renderer\Object3dRenderer.cpp">
+      <Filter>Renderer</Filter>
     </ClCompile>
     <ClCompile Include="externals\DirectXTex\BC.cpp">
-      <Filter>DxCommon</Filter>
+      <Filter>External\DirectXTex</Filter>
     </ClCompile>
     <ClCompile Include="externals\DirectXTex\BC4BC5.cpp">
-      <Filter>DxCommon</Filter>
+      <Filter>External\DirectXTex</Filter>
     </ClCompile>
     <ClCompile Include="externals\DirectXTex\BC6HBC7.cpp">
-      <Filter>DxCommon</Filter>
+      <Filter>External\DirectXTex</Filter>
     </ClCompile>
     <ClCompile Include="externals\DirectXTex\DirectXTexCompress.cpp">
-      <Filter>DxCommon</Filter>
+      <Filter>External\DirectXTex</Filter>
     </ClCompile>
     <ClCompile Include="externals\DirectXTex\DirectXTexConvert.cpp">
-      <Filter>DxCommon</Filter>
+      <Filter>External\DirectXTex</Filter>
     </ClCompile>
     <ClCompile Include="externals\DirectXTex\DirectXTexImage.cpp">
-      <Filter>DxCommon</Filter>
+      <Filter>External\DirectXTex</Filter>
     </ClCompile>
     <ClCompile Include="externals\DirectXTex\DirectXTexMipmaps.cpp">
-      <Filter>DxCommon</Filter>
+      <Filter>External\DirectXTex</Filter>
     </ClCompile>
     <ClCompile Include="externals\DirectXTex\DirectXTexMisc.cpp">
-      <Filter>DxCommon</Filter>
+      <Filter>External\DirectXTex</Filter>
     </ClCompile>
     <ClCompile Include="externals\DirectXTex\DirectXTexResize.cpp">
-      <Filter>DxCommon</Filter>
+      <Filter>External\DirectXTex</Filter>
     </ClCompile>
     <ClCompile Include="externals\DirectXTex\DirectXTexUtil.cpp">
-      <Filter>DxCommon</Filter>
+      <Filter>External\DirectXTex</Filter>
     </ClCompile>
     <ClCompile Include="externals\DirectXTex\DirectXTexWIC.cpp">
-      <Filter>DxCommon</Filter>
+      <Filter>External\DirectXTex</Filter>
     </ClCompile>
     <ClCompile Include="externals\imgui\imgui.cpp">
       <Filter>imgui</Filter>
@@ -136,49 +162,52 @@
     <ClCompile Include="externals\imgui\imgui_widgets.cpp">
       <Filter>imgui</Filter>
     </ClCompile>
-    <ClCompile Include="DebugGui.cpp">
+    <ClCompile Include="DebugTools\Gui\DebugGui.cpp">
       <Filter>Debug\Gui</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="WinApp.h">
+    <ClInclude Include="WinApp\WinApp.h">
       <Filter>WinApp</Filter>
     </ClInclude>
-    <ClInclude Include="WinConfig.h">
+    <ClInclude Include="WinApp\WinConfig.h">
       <Filter>WinApp</Filter>
     </ClInclude>
-    <ClInclude Include="Logger.h">
+    <ClInclude Include="DebugTools\Logger\Logger.h">
       <Filter>Debug\Log</Filter>
     </ClInclude>
-    <ClInclude Include="DxCommon.h">
+    <ClInclude Include="DxCommon\DxCommon.h">
       <Filter>DxCommon</Filter>
     </ClInclude>
-    <ClInclude Include="CrashHandler.h">
+    <ClInclude Include="DebugTools\CrashHandler\CrashHandler.h">
       <Filter>Debug\CrashHandler</Filter>
     </ClInclude>
-    <ClInclude Include="D3DResourceLeakChecker.h">
+    <ClInclude Include="DebugTools\CrashHandler\D3DResourceLeakChecker.h">
       <Filter>Debug\CrashHandler</Filter>
     </ClInclude>
-    <ClInclude Include="DebugCamera.h">
+    <ClInclude Include="DebugTools\DebugCamera.h">
       <Filter>Debug</Filter>
     </ClInclude>
-    <ClInclude Include="Audio.h">
+    <ClInclude Include="Audio\Audio.h">
       <Filter>Audio</Filter>
     </ClInclude>
-    <ClInclude Include="Input.h">
+    <ClInclude Include="Input\Input.h">
       <Filter>Input</Filter>
     </ClInclude>
-    <ClInclude Include="MathUtil.h">
+    <ClInclude Include="Math\MathUtil.h">
       <Filter>Math</Filter>
     </ClInclude>
-    <ClInclude Include="TextureManager.h">
-      <Filter>DxCommon</Filter>
+    <ClInclude Include="Texture\TextureManager.h">
+      <Filter>Texture</Filter>
     </ClInclude>
-    <ClInclude Include="ModelData.h">
-      <Filter>DxCommon</Filter>
+    <ClInclude Include="Model\ModelData.h">
+      <Filter>Model</Filter>
     </ClInclude>
-    <ClInclude Include="ModelLoader.h">
-      <Filter>DxCommon</Filter>
+    <ClInclude Include="Model\ModelLoader.h">
+      <Filter>Model</Filter>
+    </ClInclude>
+    <ClInclude Include="Renderer\Object3dRenderer.h">
+      <Filter>Renderer</Filter>
     </ClInclude>
     <ClInclude Include="externals\imgui\imconfig.h">
       <Filter>imgui</Filter>
@@ -204,13 +233,17 @@
     <ClInclude Include="externals\imgui\imstb_truetype.h">
       <Filter>imgui</Filter>
     </ClInclude>
-    <ClInclude Include="DebugGui.h">
+    <ClInclude Include="DebugTools\Gui\DebugGui.h">
       <Filter>Debug\Gui</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <FxCompile Include="Object3d.VS.hlsl" />
-    <FxCompile Include="Object3d.PS.hlsl" />
+    <FxCompile Include="Shaders\Object3d.VS.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Shaders\Object3d.PS.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
   </ItemGroup>
   <ItemGroup>
     <Text Include="externals\imgui\LICENSE.txt" />

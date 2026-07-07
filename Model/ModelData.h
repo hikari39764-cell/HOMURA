@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 
-#include "MathUtil.h"
+#include "Math/MathUtil.h"
 
 struct VertexData {
 	Vector4 position;
