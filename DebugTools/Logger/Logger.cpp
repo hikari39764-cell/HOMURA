@@ -7,6 +7,8 @@
 #include <ctime>
 #include <format>
 
+namespace Homura {
+
 namespace {
 
 	std::ofstream gLogStream;
@@ -129,4 +131,6 @@ void Log(const std::wstring& message) {
 
 	OutputDebugStringW(outputMessage.c_str());
 }
+
+} // namespace Homura
 

@@ -19,8 +19,11 @@
     <Filter Include="WinApp">
       <UniqueIdentifier>{acb99a63-2744-4ba2-9951-a2c2082ea478}</UniqueIdentifier>
     </Filter>
-    <Filter Include="DxCommon">
+    <Filter Include="Graphics">
       <UniqueIdentifier>{abdec8bd-538f-40a7-9ef6-f846add2f99a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Camera">
+      <UniqueIdentifier>{1a7e96a2-0109-4be0-b3a6-0fda458b3149}</UniqueIdentifier>
     </Filter>
     <Filter Include="Renderer">
       <UniqueIdentifier>{72e4bead-bc3d-4591-a78e-7d6d6bc8bb27}</UniqueIdentifier>
@@ -81,8 +84,8 @@
     <ClCompile Include="DebugTools\Logger\Logger.cpp">
       <Filter>Debug\Log</Filter>
     </ClCompile>
-    <ClCompile Include="DxCommon\DxCommon.cpp">
-      <Filter>DxCommon</Filter>
+    <ClCompile Include="Graphics\D3D12Context.cpp">
+      <Filter>Graphics</Filter>
     </ClCompile>
     <ClCompile Include="DebugTools\CrashHandler\CrashHandler.cpp">
       <Filter>Debug\CrashHandler</Filter>
@@ -107,6 +110,12 @@
     </ClCompile>
     <ClCompile Include="Renderer\Object3dRenderer.cpp">
       <Filter>Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="Renderer\FrameRenderer.cpp">
+      <Filter>Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="Camera\DefaultCamera.cpp">
+      <Filter>Camera</Filter>
     </ClCompile>
     <ClCompile Include="externals\DirectXTex\BC.cpp">
       <Filter>External\DirectXTex</Filter>
@@ -176,8 +185,8 @@
     <ClInclude Include="DebugTools\Logger\Logger.h">
       <Filter>Debug\Log</Filter>
     </ClInclude>
-    <ClInclude Include="DxCommon\DxCommon.h">
-      <Filter>DxCommon</Filter>
+    <ClInclude Include="Graphics\D3D12Context.h">
+      <Filter>Graphics</Filter>
     </ClInclude>
     <ClInclude Include="DebugTools\CrashHandler\CrashHandler.h">
       <Filter>Debug\CrashHandler</Filter>
@@ -208,6 +217,18 @@
     </ClInclude>
     <ClInclude Include="Renderer\Object3dRenderer.h">
       <Filter>Renderer</Filter>
+    </ClInclude>
+    <ClInclude Include="Renderer\FrameRenderer.h">
+      <Filter>Renderer</Filter>
+    </ClInclude>
+    <ClInclude Include="Renderer\IRenderable.h">
+      <Filter>Renderer</Filter>
+    </ClInclude>
+    <ClInclude Include="Camera\DefaultCamera.h">
+      <Filter>Camera</Filter>
+    </ClInclude>
+    <ClInclude Include="Camera\ICamera.h">
+      <Filter>Camera</Filter>
     </ClInclude>
     <ClInclude Include="externals\imgui\imconfig.h">
       <Filter>imgui</Filter>

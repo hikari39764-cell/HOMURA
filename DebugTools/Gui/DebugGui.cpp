@@ -8,6 +8,8 @@
 #include "externals/imgui/imgui_impl_win32.h"
 #endif
 
+namespace Homura {
+
 bool DebugGui::Initialize(
 	HWND hwnd,
 	ID3D12Device* device,
@@ -140,3 +142,5 @@ void DebugGui::Render(ID3D12GraphicsCommandList* commandList) {
 	(void)commandList;
 #endif
 }
+
+} // namespace Homura

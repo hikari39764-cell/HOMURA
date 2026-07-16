@@ -12,6 +12,8 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(
 );
 #endif
 
+namespace Homura {
+
 LRESULT CALLBACK WinApp::WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 #ifdef USE_IMGUI
 	if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wparam, lparam)) {
@@ -122,3 +124,5 @@ bool WinApp::ProcessMessage() {
 
 	return false;
 }
+
+} // namespace Homura

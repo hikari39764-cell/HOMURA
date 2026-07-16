@@ -5,6 +5,8 @@
 
 #include "DebugTools/Logger/Logger.h"
 
+namespace Homura {
+
 struct D3DResourceLeakChecker {
 	~D3DResourceLeakChecker() {
 #ifdef _DEBUG
@@ -28,3 +30,5 @@ struct D3DResourceLeakChecker {
 #endif
 	}
 };
+
+} // namespace Homura

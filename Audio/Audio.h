@@ -7,6 +7,8 @@
 #include <string>
 #include <vector>
 
+namespace Homura {
+
 class Audio {
 public:
 	struct SoundData {
@@ -34,3 +36,5 @@ private:
 	std::vector<IXAudio2SourceVoice*> sourceVoices_;
 	bool initialized_ = false;
 };
+
+} // namespace Homura

@@ -10,6 +10,8 @@
 #include <dinput.h>
 #include <wrl.h>
 
+namespace Homura {
+
 struct MouseMove {
 	LONG x;
 	LONG y;
@@ -46,3 +48,5 @@ private:
 	DIMOUSESTATE2 previousMouseState_{};
 	bool initialized_ = false;
 };
+
+} // namespace Homura

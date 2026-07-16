@@ -9,6 +9,8 @@
 
 #include "externals/DirectXTex/DirectXTex.h"
 
+namespace Homura {
+
 class TextureManager {
 public:
 	bool Initialize(
@@ -58,3 +60,5 @@ private:
 	Microsoft::WRL::ComPtr<ID3D12Resource> textureResource_;
 	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU_ = {};
 };
+
+} // namespace Homura

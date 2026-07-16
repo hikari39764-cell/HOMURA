@@ -6,6 +6,8 @@
 
 #pragma comment(lib, "Dbghelp.lib")
 
+namespace Homura {
+
 // 誰も捕捉しなかったSEH例外を捕捉して、Dumpを出力する
 static LONG WINAPI ExportDump(EXCEPTION_POINTERS* exception) {
 	// Dumpsディレクトリ以下に出力する
@@ -65,3 +67,5 @@ void InitializeCrashHandler() {
 	// 誰も捕捉しなかった例外を捕捉する関数を登録
 	SetUnhandledExceptionFilter(ExportDump);
 }
+
+} // namespace Homura

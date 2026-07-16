@@ -102,10 +102,11 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Audio\Audio.cpp" />
+    <ClCompile Include="Camera\DefaultCamera.cpp" />
     <ClCompile Include="DebugTools\CrashHandler\CrashHandler.cpp" />
     <ClCompile Include="DebugTools\DebugCamera.cpp" />
     <ClCompile Include="DebugTools\Gui\DebugGui.cpp" />
-    <ClCompile Include="DxCommon\DxCommon.cpp" />
+    <ClCompile Include="Graphics\D3D12Context.cpp" />
     <ClCompile Include="Input\Input.cpp" />
     <ClCompile Include="externals\DirectXTex\BC.cpp" />
     <ClCompile Include="externals\DirectXTex\BC4BC5.cpp" />
@@ -143,17 +144,20 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     <ClCompile Include="App\main.cpp" />
     <ClCompile Include="Math\MathUtil.cpp" />
     <ClCompile Include="Model\ModelLoader.cpp" />
+    <ClCompile Include="Renderer\FrameRenderer.cpp" />
     <ClCompile Include="Renderer\Object3dRenderer.cpp" />
     <ClCompile Include="Texture\TextureManager.cpp" />
     <ClCompile Include="WinApp\WinApp.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Audio\Audio.h" />
+    <ClInclude Include="Camera\DefaultCamera.h" />
+    <ClInclude Include="Camera\ICamera.h" />
     <ClInclude Include="DebugTools\CrashHandler\CrashHandler.h" />
     <ClInclude Include="DebugTools\CrashHandler\D3DResourceLeakChecker.h" />
     <ClInclude Include="DebugTools\DebugCamera.h" />
     <ClInclude Include="DebugTools\Gui\DebugGui.h" />
-    <ClInclude Include="DxCommon\DxCommon.h" />
+    <ClInclude Include="Graphics\D3D12Context.h" />
     <ClInclude Include="Input\Input.h" />
     <ClInclude Include="externals\imgui\imconfig.h" />
     <ClInclude Include="externals\imgui\imgui.h" />
@@ -167,6 +171,8 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     <ClInclude Include="Math\MathUtil.h" />
     <ClInclude Include="Model\ModelData.h" />
     <ClInclude Include="Model\ModelLoader.h" />
+    <ClInclude Include="Renderer\FrameRenderer.h" />
+    <ClInclude Include="Renderer\IRenderable.h" />
     <ClInclude Include="Renderer\Object3dRenderer.h" />
     <ClInclude Include="Texture\TextureManager.h" />
     <ClInclude Include="WinApp\WinApp.h" />

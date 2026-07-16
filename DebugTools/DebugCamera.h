@@ -1,20 +1,23 @@
 #pragma once
 
+#include "Camera/ICamera.h"
 #include "Math/MathUtil.h"
+
+namespace Homura {
 
 class Input;
 
 /// <summary>
 /// デバッグカメラ
 /// </summary>
-class DebugCamera {
+class DebugCamera : public ICamera {
 public:
 	void Initialize(float aspectRatio);
 	void Update(const Input& input);
 	void Reset();
 
-	const Matrix4x4& GetViewMatrix() const;
-	const Matrix4x4& GetProjectionMatrix() const;
+	const Matrix4x4& GetViewMatrix() const override;
+	const Matrix4x4& GetProjectionMatrix() const override;
 
 private:
 	void UpdateMove(const Input& input);
@@ -35,3 +38,5 @@ private:
 	// 射影行列
 	Matrix4x4 projectionMatrix_ = MakeIdentity4x4();
 };
+
+} // namespace Homura

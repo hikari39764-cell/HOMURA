@@ -4,6 +4,8 @@
 #include <d3d12.h>
 #include <dxgiformat.h>
 
+namespace Homura {
+
 class DebugGui {
 public:
 	bool Initialize(
@@ -25,3 +27,5 @@ public:
 private:
 	bool initialized_ = false;
 };
+
+} // namespace Homura

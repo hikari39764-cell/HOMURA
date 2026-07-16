@@ -11,6 +11,8 @@
 
 #pragma comment(lib, "xaudio2.lib")
 
+namespace Homura {
+
 namespace {
 
 	struct ChunkHeader {
@@ -263,3 +265,5 @@ void Audio::DestroyAllVoices() {
 
 	sourceVoices_.clear();
 }
+
+} // namespace Homura

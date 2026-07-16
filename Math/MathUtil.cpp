@@ -3,6 +3,8 @@
 #include <cassert>
 #include <cmath>
 
+namespace Homura {
+
 Matrix4x4 MakeIdentity4x4() {
 	Matrix4x4 result{};
 
@@ -227,3 +229,5 @@ Vector3 Normalize(const Vector3& vector) {
 		vector.z / length
 	};
 }
+
+} // namespace Homura

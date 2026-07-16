@@ -4,7 +4,7 @@
 
 #include "WinApp/WinApp.h"
 #include "DebugTools/Logger/Logger.h"
-#include "DxCommon/DxCommon.h"
+#include "Renderer/FrameRenderer.h"
 #include "DebugTools/CrashHandler/CrashHandler.h"
 #include "DebugTools/CrashHandler/D3DResourceLeakChecker.h"
 #include "Audio/Audio.h"
@@ -20,6 +20,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int showCmd) {
 		return -1;
 	}
 
+	using namespace Homura;
+
 	InitializeCrashHandler();
 	InitializeLogger();
 
@@ -30,13 +32,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int showCmd) {
 		D3DResourceLeakChecker leakChecker;
 
 		WinApp winApp;
-		DXCommon dxCommon;
+		FrameRenderer frameRenderer;
 		Audio audio;
 		Input input;
 
 		if (!winApp.Initialize(showCmd)) {
 			result = -1;
-		} else if (!dxCommon.Initialize(winApp.GetHwnd())) {
+		} else if (!frameRenderer.Initialize(winApp.GetHwnd())) {
 			result = -1;
 		} else if (!audio.Initialize()) {
 			result = -1;
@@ -68,20 +70,20 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int showCmd) {
 					}
 
 					// 入力をもとにデバッグカメラなどの更新を行う
-					dxCommon.Update(input);
+					frameRenderer.Update(input);
 
 					// 再生が終わったSourceVoiceを毎フレーム片付ける
 					audio.Update();
 
 					// 毎フレームBackBufferを指定色でクリアして画面に表示する
-					dxCommon.Draw();
+					frameRenderer.Draw();
 				}
 			}
 		}
 
 		input.Finalize();
 		audio.Finalize();
-		dxCommon.Finalize();
+		frameRenderer.Finalize();
 		winApp.Finalize();
 	}
 

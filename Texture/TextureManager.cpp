@@ -10,6 +10,8 @@
 
 #include "DebugTools/Logger/Logger.h"
 
+namespace Homura {
+
 namespace {
 
 	std::wstring ConvertString(const std::string& str) {
@@ -384,3 +386,5 @@ void TextureManager::CreateTextureSRV(
 	// SRVを作成する
 	device->CreateShaderResourceView(textureResource_.Get(), &srvDesc, textureSrvHandleCPU);
 }
+
+} // namespace Homura

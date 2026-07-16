@@ -1,5 +1,7 @@
 #pragma once
 
+namespace Homura {
+
 struct Vector3 {
 	float x;
 	float y;
@@ -50,3 +52,5 @@ Matrix4x4 Inverse(const Matrix4x4& matrix);
 
 float Length(const Vector3& vector);
 Vector3 Normalize(const Vector3& vector);
+
+} // namespace Homura

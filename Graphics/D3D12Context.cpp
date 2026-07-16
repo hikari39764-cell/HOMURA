@@ -1,4 +1,4 @@
-#include "DxCommon.h"
+#include "D3D12Context.h"
 
 #include <cassert>
 #include <format>
@@ -9,11 +9,12 @@
 #pragma comment(lib, "dxguid.lib")
 
 #include "DebugTools/Logger/Logger.h"
-#include "Input/Input.h"
 #include "WinApp/WinConfig.h"
 
 
-bool DXCommon::Initialize(HWND hwnd) {
+namespace Homura {
+
+bool D3D12Context::Initialize(HWND hwnd) {
 	// DebugLayerはD3D12Deviceを作る前に有効化
 	EnableDebugLayer();
 
@@ -85,23 +86,13 @@ bool DXCommon::Initialize(HWND hwnd) {
 		return false;
 	}
 
-	// 3Dオブジェクト描画用のRendererを初期化する
-	if (!CreateObject3dRenderer()) {
-		return false;
-	}
-
-	// 開発用UIを初期化する
-	if (!CreateDebugGui(hwnd)) {
-		return false;
-	}
-
 	// 画面全体に描画するためのViewportとScissorを設定する
 	CreateViewportAndScissor();
 
 	return true;
 }
 
-void DXCommon::EnableDebugLayer() {
+void D3D12Context::EnableDebugLayer() {
 #ifdef _DEBUG
 	// DebugLayerを有効にする
 	Microsoft::WRL::ComPtr<ID3D12Debug1> debugController;
@@ -122,7 +113,7 @@ void DXCommon::EnableDebugLayer() {
 #endif
 }
 
-void DXCommon::SetupDebugInfoQueue() {
+void D3D12Context::SetupDebugInfoQueue() {
 #ifdef _DEBUG
 
 	// DeviceからInfoQueueを取得する
@@ -163,14 +154,12 @@ void DXCommon::SetupDebugInfoQueue() {
 #endif
 }
 
-void DXCommon::Finalize() {
+void D3D12Context::Finalize() {
 	// GPUがまだResourceを使用している可能性があるので、ComPtrの解放前に待機する
 	if (commandQueue_.Get() != nullptr && fence_.Get() != nullptr) {
 		WaitForGpu();
 	}
 
-	debugGui_.Finalize();
-	object3dRenderer_.Finalize();
 
 	if (fenceEvent_ != nullptr) {
 		CloseHandle(fenceEvent_);
@@ -178,45 +167,66 @@ void DXCommon::Finalize() {
 	}
 }
 
-void DXCommon::Update(const Input& input) {
-	object3dRenderer_.Update(input);
-}
-
-void DXCommon::Draw() {
-	// 今から書き込むBackBufferの番号をSwapChainから取得する
-	UINT backBufferIndex = swapChain_->GetCurrentBackBufferIndex();
-
-	// 前フレームの命令を保存していたAllocatorを再利用できる状態に戻す
+bool D3D12Context::ResetCommandList() {
 	HRESULT hr = commandAllocator_->Reset();
 	assert(SUCCEEDED(hr));
 
-	// CommandListも再び命令を書き込める状態に戻す
+	if (FAILED(hr)) {
+		return false;
+	}
+
 	hr = commandList_->Reset(commandAllocator_.Get(), nullptr);
 	assert(SUCCEEDED(hr));
 
-	// BackBufferを描画先として使える状態へ変更する
+	return SUCCEEDED(hr);
+}
+
+bool D3D12Context::ExecuteCommandListAndWait() {
+	HRESULT hr = commandList_->Close();
+	assert(SUCCEEDED(hr));
+
+	if (FAILED(hr)) {
+		return false;
+	}
+
+	ID3D12CommandList* commandLists[] = { commandList_.Get() };
+	commandQueue_->ExecuteCommandLists(1, commandLists);
+	WaitForGpu();
+
+	return true;
+}
+
+bool D3D12Context::BeginFrame() {
+	// ???????BackBuffer????SwapChain??????
+	backBufferIndex_ = swapChain_->GetCurrentBackBufferIndex();
+
+	if (!ResetCommandList()) {
+		return false;
+	}
+
+	// BackBuffer?????????????????
 	D3D12_RESOURCE_BARRIER barrier{};
 	barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
 	barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-	barrier.Transition.pResource = swapChainResources_[backBufferIndex].Get();
+	barrier.Transition.pResource = swapChainResources_[backBufferIndex_].Get();
 	barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
 	barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
 	barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
 
 	commandList_->ResourceBarrier(1, &barrier);
 
-	// DSV用DescriptorHeapの先頭ハンドルを取得する
+	// DSV?DescriptorHeap????????????
 	D3D12_CPU_DESCRIPTOR_HANDLE dsvHandle =
 		dsvDescriptorHeap_->GetCPUDescriptorHandleForHeapStart();
 
-	// これから描画するRTVとDSVを設定する
-	commandList_->OMSetRenderTargets(1, &rtvHandles_[backBufferIndex], false, &dsvHandle);
+	// ????????RTV?DSV?????
+	commandList_->OMSetRenderTargets(1, &rtvHandles_[backBufferIndex_], false, &dsvHandle);
 
-	// 指定した色で画面全体をクリアする
+	// ????????????????
 	const float clearColor[] = { 0.1f, 0.25f, 0.5f, 1.0f };
-	commandList_->ClearRenderTargetView(rtvHandles_[backBufferIndex], clearColor, 0, nullptr);
+	commandList_->ClearRenderTargetView(rtvHandles_[backBufferIndex_], clearColor, 0, nullptr);
 
-	// 深度値を一番奥の1.0fでクリアする
+	// ????????1.0f??????
 	commandList_->ClearDepthStencilView(
 		dsvHandle,
 		D3D12_CLEAR_FLAG_DEPTH,
@@ -226,57 +236,71 @@ void DXCommon::Draw() {
 		nullptr
 	);
 
-	// 描画範囲を設定する
+	// ?????????
 	commandList_->RSSetViewports(1, &viewport_);
 	commandList_->RSSetScissorRects(1, &scissorRect_);
 
-	// 座標変換行列を更新する
-	object3dRenderer_.UpdateTransformationMatrix();
+	return true;
+}
 
-	// ImGuiのフレームを開始して開発用UIを作る
-	debugGui_.BeginFrame();
+bool D3D12Context::EndFrame() {
+	// BackBuffer??????????
+	D3D12_RESOURCE_BARRIER barrier{};
+	barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+	barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+	barrier.Transition.pResource = swapChainResources_[backBufferIndex_].Get();
+	barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+	barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
+	barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
 
-#ifdef USE_IMGUI
-	object3dRenderer_.DrawDebugGui();
-#else
-	debugGui_.ShowDemoWindow();
-#endif
-	debugGui_.EndFrame();
+	commandList_->ResourceBarrier(1, &barrier);
 
-	// Shaderから参照するDescriptorHeapを設定する
+	// CommandList????????
+	HRESULT hr = commandList_->Close();
+	assert(SUCCEEDED(hr));
+
+	if (FAILED(hr)) {
+		return false;
+	}
+
+	// GPU?CommandList????????
+	ID3D12CommandList* commandLists[] = { commandList_.Get() };
+	commandQueue_->ExecuteCommandLists(1, commandLists);
+
+	// ????????????BackBuffer?????
+	hr = swapChain_->Present(1, 0);
+	assert(SUCCEEDED(hr));
+
+	if (FAILED(hr)) {
+		return false;
+	}
+
+	// ?????GPU??????
+	WaitForGpu();
+	return true;
+}
+
+void D3D12Context::SetShaderVisibleDescriptorHeap() {
+	// Shader??????DescriptorHeap?????
 	ID3D12DescriptorHeap* descriptorHeaps[] = {
 		srvDescriptorHeap_.Get()
 	};
 	commandList_->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
-
-	object3dRenderer_.Draw(commandList_.Get());
-
-	// 最後にImGuiを描画して画面の前面に表示する
-	debugGui_.Render(commandList_.Get());
-
-	// BackBufferを表示用の状態へ戻す
-	barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
-	barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
-
-	commandList_->ResourceBarrier(1, &barrier);
-
-	// CommandListの内容を確定する
-	hr = commandList_->Close();
-	assert(SUCCEEDED(hr));
-
-	// GPUにCommandListの実行を依頼する
-	ID3D12CommandList* commandLists[] = { commandList_.Get() };
-	commandQueue_->ExecuteCommandLists(1, commandLists);
-
-	// 画面を交換して、今描いたBackBufferを表示する
-	hr = swapChain_->Present(1, 0);
-	assert(SUCCEEDED(hr));
-
-	// 毎フレームGPUの完了を待つ
-	WaitForGpu();
 }
 
-bool DXCommon::CreateFactory() {
+const Microsoft::WRL::ComPtr<ID3D12Device>& D3D12Context::GetDevice() const {
+	return device_;
+}
+
+const Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList>& D3D12Context::GetCommandList() const {
+	return commandList_;
+}
+
+const Microsoft::WRL::ComPtr<ID3D12DescriptorHeap>& D3D12Context::GetSRVDescriptorHeap() const {
+	return srvDescriptorHeap_;
+}
+
+bool D3D12Context::CreateFactory() {
 	// DXGIファクトリを生成する
 	HRESULT hr = ::CreateDXGIFactory(IID_PPV_ARGS(&dxgiFactory_));
 	assert(SUCCEEDED(hr));
@@ -288,7 +312,7 @@ bool DXCommon::CreateFactory() {
 	return true;
 }
 
-bool DXCommon::SelectAdapter() {
+bool D3D12Context::SelectAdapter() {
 	// 高性能順にアダプタを列挙して、使用するGPUを決める
 	for (UINT i = 0;
 		dxgiFactory_->EnumAdapterByGpuPreference(
@@ -321,7 +345,7 @@ bool DXCommon::SelectAdapter() {
 	return true;
 }
 
-bool DXCommon::CreateDevice() {
+bool D3D12Context::CreateDevice() {
 	// 使用するアダプタ上にD3D12Deviceを生成する
 	Microsoft::WRL::ComPtr<ID3D12Device> device;
 
@@ -361,7 +385,7 @@ bool DXCommon::CreateDevice() {
 	return true;
 }
 
-bool DXCommon::CreateCommandQueue() {
+bool D3D12Context::CreateCommandQueue() {
 	// CommandQueueを作成する
 	D3D12_COMMAND_QUEUE_DESC commandQueueDesc{};
 	commandQueueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
@@ -380,7 +404,7 @@ bool DXCommon::CreateCommandQueue() {
 	return true;
 }
 
-bool DXCommon::CreateCommandList() {
+bool D3D12Context::CreateCommandList() {
 	// CommandListが使う命令保存用のAllocatorを作成する
 	HRESULT hr = device_->CreateCommandAllocator(
 		D3D12_COMMAND_LIST_TYPE_DIRECT,
@@ -418,7 +442,7 @@ bool DXCommon::CreateCommandList() {
 	return true;
 }
 
-bool DXCommon::CreateSwapChain(HWND hwnd) {
+bool D3D12Context::CreateSwapChain(HWND hwnd) {
 	// SwapChainの設定を行う
 	DXGI_SWAP_CHAIN_DESC1 swapChainDesc{};
 	swapChainDesc.Width = WinConfig::kClientWidth;
@@ -458,7 +482,7 @@ bool DXCommon::CreateSwapChain(HWND hwnd) {
 	return true;
 }
 
-bool DXCommon::CreateRTVDescriptorHeap() {
+bool D3D12Context::CreateRTVDescriptorHeap() {
 	// RTV用のDescriptorHeapを作成する
 	rtvDescriptorHeap_ = CreateDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE_RTV, kBackBufferCount, false);
 
@@ -473,7 +497,7 @@ bool DXCommon::CreateRTVDescriptorHeap() {
 	return true;
 }
 
-bool DXCommon::CreateSRVDescriptorHeap() {
+bool D3D12Context::CreateSRVDescriptorHeap() {
 	// SRV用のHeapでDescriptorの数は128。Shader内で触るのでShaderVisibleはtrue
 	srvDescriptorHeap_ = CreateDescriptorHeap(
 		D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
@@ -493,7 +517,7 @@ bool DXCommon::CreateSRVDescriptorHeap() {
 	return true;
 }
 
-bool DXCommon::CreateDSVDescriptorHeap() {
+bool D3D12Context::CreateDSVDescriptorHeap() {
 	// DSV用のDescriptorHeapを作成する
 	dsvDescriptorHeap_ = CreateDescriptorHeap(
 		D3D12_DESCRIPTOR_HEAP_TYPE_DSV,
@@ -510,7 +534,7 @@ bool DXCommon::CreateDSVDescriptorHeap() {
 	return true;
 }
 
-bool DXCommon::GetSwapChainResources() {
+bool D3D12Context::GetSwapChainResources() {
 	// SwapChainが持っているBackBufferのResourceを取得する
 	for (UINT i = 0; i < kBackBufferCount; ++i) {
 		HRESULT hr = swapChain_->GetBuffer(i, IID_PPV_ARGS(&swapChainResources_[i]));
@@ -525,7 +549,7 @@ bool DXCommon::GetSwapChainResources() {
 	return true;
 }
 
-bool DXCommon::CreateDSV() {
+bool D3D12Context::CreateDSV() {
 	if (depthStencilResource_.Get() == nullptr || dsvDescriptorHeap_.Get() == nullptr) {
 		return false;
 	}
@@ -547,7 +571,7 @@ bool DXCommon::CreateDSV() {
 	return true;
 }
 
-bool DXCommon::CreateRTV() {
+bool D3D12Context::CreateRTV() {
 	// RTVの設定
 	D3D12_RENDER_TARGET_VIEW_DESC rtvDesc{};
 	rtvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
@@ -570,7 +594,7 @@ bool DXCommon::CreateRTV() {
 	return true;
 }
 
-bool DXCommon::CreateDepthStencilResource() {
+bool D3D12Context::CreateDepthStencilResource() {
 	// DepthStencilとして使うTextureResourceの設定
 	D3D12_RESOURCE_DESC resourceDesc{};
 	resourceDesc.Width = WinConfig::kClientWidth;
@@ -612,7 +636,7 @@ bool DXCommon::CreateDepthStencilResource() {
 	return true;
 }
 
-bool DXCommon::CreateFence() {
+bool D3D12Context::CreateFence() {
 	// GPUの処理完了をCPU側で確認するためのFenceを作成する
 	fenceValue_ = 0;
 
@@ -639,71 +663,7 @@ bool DXCommon::CreateFence() {
 	return true;
 }
 
-bool DXCommon::CreateObject3dRenderer() {
-	// Texture転送用のCommandListを記録できる状態にする
-	HRESULT hr = commandAllocator_->Reset();
-	assert(SUCCEEDED(hr));
-
-	if (FAILED(hr)) {
-		return false;
-	}
-
-	hr = commandList_->Reset(commandAllocator_.Get(), nullptr);
-	assert(SUCCEEDED(hr));
-
-	if (FAILED(hr)) {
-		return false;
-	}
-
-	Microsoft::WRL::ComPtr<ID3D12Resource> modelIntermediateResource;
-
-	// 3Dモデル描画に必要なModel, Texture, PipelineState, Resourceを作る
-	if (!object3dRenderer_.Initialize(
-		device_,
-		commandList_,
-		GetSRVCPUDescriptorHandle(kModelTextureSRVIndex),
-		GetSRVGPUDescriptorHandle(kModelTextureSRVIndex),
-		&modelIntermediateResource,
-		float(WinConfig::kClientWidth) / float(WinConfig::kClientHeight)
-	)) {
-		return false;
-	}
-
-	// Texture転送のCommandListを確定してGPUに実行してもらう
-	hr = commandList_->Close();
-	assert(SUCCEEDED(hr));
-
-	if (FAILED(hr)) {
-		return false;
-	}
-
-	ID3D12CommandList* commandLists[] = { commandList_.Get() };
-	commandQueue_->ExecuteCommandLists(1, commandLists);
-
-	// 転送が完了するまで中間Resourceは保持しておく
-	WaitForGpu();
-
-	return true;
-}
-
-bool DXCommon::CreateDebugGui(HWND hwnd) {
-	// ImGuiはSRV用Heapの先頭を使ってフォント用Textureを管理する
-	if (!debugGui_.Initialize(
-		hwnd,
-		device_.Get(),
-		kBackBufferCount,
-		DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
-		srvDescriptorHeap_.Get(),
-		GetSRVCPUDescriptorHandle(kImGuiSRVIndex),
-		GetSRVGPUDescriptorHandle(kImGuiSRVIndex)
-	)) {
-		return false;
-	}
-
-	return true;
-}
-
-Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> DXCommon::CreateDescriptorHeap(
+Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> D3D12Context::CreateDescriptorHeap(
 	D3D12_DESCRIPTOR_HEAP_TYPE heapType,
 	UINT numDescriptors,
 	bool shaderVisible
@@ -730,7 +690,7 @@ Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> DXCommon::CreateDescriptorHeap(
 	return descriptorHeap;
 }
 
-D3D12_CPU_DESCRIPTOR_HANDLE DXCommon::GetCPUDescriptorHandle(
+D3D12_CPU_DESCRIPTOR_HANDLE D3D12Context::GetCPUDescriptorHandle(
 	const Microsoft::WRL::ComPtr<ID3D12DescriptorHeap>& descriptorHeap,
 	UINT descriptorSize,
 	UINT index
@@ -744,7 +704,7 @@ D3D12_CPU_DESCRIPTOR_HANDLE DXCommon::GetCPUDescriptorHandle(
 	return handleCPU;
 }
 
-D3D12_GPU_DESCRIPTOR_HANDLE DXCommon::GetGPUDescriptorHandle(
+D3D12_GPU_DESCRIPTOR_HANDLE D3D12Context::GetGPUDescriptorHandle(
 	const Microsoft::WRL::ComPtr<ID3D12DescriptorHeap>& descriptorHeap,
 	UINT descriptorSize,
 	UINT index
@@ -758,7 +718,7 @@ D3D12_GPU_DESCRIPTOR_HANDLE DXCommon::GetGPUDescriptorHandle(
 	return handleGPU;
 }
 
-D3D12_CPU_DESCRIPTOR_HANDLE DXCommon::GetSRVCPUDescriptorHandle(UINT index) const {
+D3D12_CPU_DESCRIPTOR_HANDLE D3D12Context::GetSRVCPUDescriptorHandle(UINT index) const {
 	// SRV用DescriptorHeapの指定した位置のCPUHandleを取得する
 	return GetCPUDescriptorHandle(
 		srvDescriptorHeap_,
@@ -767,7 +727,7 @@ D3D12_CPU_DESCRIPTOR_HANDLE DXCommon::GetSRVCPUDescriptorHandle(UINT index) cons
 	);
 }
 
-D3D12_GPU_DESCRIPTOR_HANDLE DXCommon::GetSRVGPUDescriptorHandle(UINT index) const {
+D3D12_GPU_DESCRIPTOR_HANDLE D3D12Context::GetSRVGPUDescriptorHandle(UINT index) const {
 	// SRV用DescriptorHeapの指定した位置のGPUHandleを取得する
 	return GetGPUDescriptorHandle(
 		srvDescriptorHeap_,
@@ -776,7 +736,7 @@ D3D12_GPU_DESCRIPTOR_HANDLE DXCommon::GetSRVGPUDescriptorHandle(UINT index) cons
 	);
 }
 
-void DXCommon::CreateViewportAndScissor() {
+void D3D12Context::CreateViewportAndScissor() {
 	// Viewportを設定する
 	viewport_.Width = static_cast<float>(WinConfig::kClientWidth);
 	viewport_.Height = static_cast<float>(WinConfig::kClientHeight);
@@ -794,7 +754,7 @@ void DXCommon::CreateViewportAndScissor() {
 	Log("Complete create Viewport and Scissor!!!\n");
 }
 
-void DXCommon::WaitForGpu() {
+void D3D12Context::WaitForGpu() {
 	// Fence値を1つ進める
 	++fenceValue_;
 
@@ -815,3 +775,5 @@ void DXCommon::WaitForGpu() {
 		WaitForSingleObject(fenceEvent_, INFINITE);
 	}
 }
+
+} // namespace Homura

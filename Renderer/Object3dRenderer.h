@@ -4,18 +4,18 @@
 #include <dxcapi.h>
 #include <wrl.h>
 
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
 #include <string>
 
-#include "DebugTools/DebugCamera.h"
 #include "Math/MathUtil.h"
 #include "Model/ModelData.h"
+#include "Renderer/IRenderable.h"
 #include "Texture/TextureManager.h"
 
-class Input;
+namespace Homura {
 
-class Object3dRenderer {
+class Object3dRenderer : public IRenderable {
 public:
 	bool Initialize(
 		const Microsoft::WRL::ComPtr<ID3D12Device>& device,
@@ -23,14 +23,13 @@ public:
 		D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU,
 		D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU,
 		Microsoft::WRL::ComPtr<ID3D12Resource>* textureIntermediateResource,
-		float aspectRatio
+		const ModelData& modelData
 	);
 	void Finalize();
 
-	void Update(const Input& input);
-	void UpdateTransformationMatrix();
+	void UpdateTransformationMatrix(const ICamera& camera) override;
 	void DrawDebugGui();
-	void Draw(ID3D12GraphicsCommandList* commandList);
+	void Draw(ID3D12GraphicsCommandList* commandList) override;
 
 private:
 	struct Material {
@@ -52,7 +51,6 @@ private:
 	};
 
 private:
-	bool LoadModel();
 	bool CreateTexture(
 		const Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList>& commandList,
 		D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU,
@@ -72,8 +70,6 @@ private:
 	bool CreateMaterialResource();
 	bool CreateTransformationMatrixResource();
 	bool CreateDirectionalLightResource();
-	Matrix4x4 CreateDefaultViewMatrix() const;
-	Matrix4x4 CreateProjectionMatrix() const;
 
 private:
 	Microsoft::WRL::ComPtr<ID3D12Device> device_;
@@ -102,14 +98,6 @@ private:
 		{ 0.0f, 0.0f, 0.0f },
 		{ 0.0f, 0.0f, 0.0f },
 	};
-
-	// カメラの座標変換行列の初期値
-	Transform cameraTransform_ = {
-		{ 1.0f, 1.0f, 1.0f },
-		{ 0.0f, 0.0f, 0.0f },
-		{ 0.0f, 0.0f, -10.0f },
-	};
-
-	DebugCamera debugCamera_;
-	bool useDebugCamera_ = false;
 };
+
+} // namespace Homura

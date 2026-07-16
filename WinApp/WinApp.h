@@ -1,6 +1,8 @@
 #pragma once
 #include <Windows.h>
 
+namespace Homura {
+
 class WinApp {
 public:
 	static LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
@@ -17,3 +19,5 @@ private:
 	RECT wrc_{};
 	HWND hwnd_ = nullptr;
 };
+
+} // namespace Homura

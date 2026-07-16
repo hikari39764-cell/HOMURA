@@ -7,6 +7,8 @@
 #include <string>
 #include <vector>
 
+namespace Homura {
+
 namespace {
 
 	std::string JoinPath(const std::string& directoryPath, const std::string& filename) {
@@ -169,3 +171,5 @@ ModelData LoadObjFile(const std::string& directoryPath, const std::string& filen
 
 	return modelData;
 }
+
+} // namespace Homura

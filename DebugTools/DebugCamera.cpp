@@ -2,6 +2,8 @@
 
 #include "Input/Input.h"
 
+namespace Homura {
+
 namespace {
 
 constexpr float kMoveSpeed = 0.25f;
@@ -139,3 +141,5 @@ Vector3 DebugCamera::TransformDirection(const Vector3& direction) const {
 		direction.x * matRot_.m[0][2] + direction.y * matRot_.m[1][2] + direction.z * matRot_.m[2][2]
 	};
 }
+
+} // namespace Homura

@@ -5,6 +5,8 @@
 
 #include "Math/MathUtil.h"
 
+namespace Homura {
+
 struct VertexData {
 	Vector4 position;
 	Vector2 texcoord;
@@ -19,3 +21,5 @@ struct ModelData {
 	std::vector<VertexData> vertices;
 	MaterialData material;
 };
+
+} // namespace Homura

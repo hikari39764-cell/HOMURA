@@ -9,6 +9,8 @@
 #pragma comment(lib, "dinput8.lib")
 #pragma comment(lib, "dxguid.lib")
 
+namespace Homura {
+
 Input::~Input() {
 	Finalize();
 }
@@ -210,3 +212,5 @@ bool Input::IsMouseButtonDown(const DIMOUSESTATE2& mouseState, uint8_t buttonNum
 
 	return (mouseState.rgbButtons[index] & 0x80) != 0;
 }
+
+} // namespace Homura

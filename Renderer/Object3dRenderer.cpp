@@ -11,10 +11,9 @@
 
 #pragma comment(lib, "dxcompiler.lib")
 
-#include "Input/Input.h"
 #include "DebugTools/Logger/Logger.h"
-#include "Model/ModelLoader.h"
-#include "WinApp/WinConfig.h"
+
+namespace Homura {
 
 bool Object3dRenderer::Initialize(
 	const Microsoft::WRL::ComPtr<ID3D12Device>& device,
@@ -22,22 +21,24 @@ bool Object3dRenderer::Initialize(
 	D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU,
 	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU,
 	Microsoft::WRL::ComPtr<ID3D12Resource>* textureIntermediateResource,
-	float aspectRatio
+	const ModelData& modelData
 ) {
 	assert(device.Get() != nullptr);
 	assert(commandList.Get() != nullptr);
 	assert(textureIntermediateResource != nullptr);
+	assert(!modelData.vertices.empty());
+	assert(!modelData.material.textureFilePath.empty());
 
-	if (device.Get() == nullptr || commandList.Get() == nullptr || textureIntermediateResource == nullptr) {
+	if (device.Get() == nullptr ||
+		commandList.Get() == nullptr ||
+		textureIntermediateResource == nullptr ||
+		modelData.vertices.empty() ||
+		modelData.material.textureFilePath.empty()) {
 		return false;
 	}
 
 	device_ = device;
-
-	// OBJを読み込んで頂点とMaterial情報を作る
-	if (!LoadModel()) {
-		return false;
-	}
+	modelData_ = modelData;
 
 	// Textureを読み込んでShaderから使えるようにする
 	if (!CreateTexture(commandList, textureSrvHandleCPU, textureSrvHandleGPU, textureIntermediateResource)) {
@@ -69,9 +70,6 @@ bool Object3dRenderer::Initialize(
 		return false;
 	}
 
-	// デバッグカメラの射影行列を画面比率に合わせて初期化する
-	debugCamera_.Initialize(aspectRatio);
-
 	return true;
 }
 
@@ -92,20 +90,8 @@ void Object3dRenderer::Finalize() {
 	device_.Reset();
 }
 
-void Object3dRenderer::Update(const Input& input) {
-	if (input.IsTriggerKey(DIK_F1)) {
-		useDebugCamera_ = !useDebugCamera_;
-	}
-
-	if (useDebugCamera_) {
-		debugCamera_.Update(input);
-	}
-}
-
 void Object3dRenderer::DrawDebugGui() {
 #ifdef USE_IMGUI
-	ImGui::Begin("Settings");
-
 	if (materialData_ != nullptr) {
 		ImGui::ColorEdit4("color", &materialData_->color.x);
 
@@ -113,17 +99,6 @@ void Object3dRenderer::DrawDebugGui() {
 		if (ImGui::Checkbox("enableLighting", &enableLighting)) {
 			materialData_->enableLighting = enableLighting ? 1 : 0;
 		}
-	}
-
-	ImGui::Checkbox("UseDebugCamera(F1)", &useDebugCamera_);
-
-	if (useDebugCamera_) {
-		ImGui::Text("RightDrag:Look  WASD/QE:Move  ZC:Roll  Shift:Fast  R:Reset");
-	} else {
-		ImGui::DragFloat3("CameraTranslate", &cameraTransform_.translate.x, 0.01f);
-		ImGui::DragFloat("CameraRotateX", &cameraTransform_.rotate.x, 0.01f);
-		ImGui::DragFloat("CameraRotateY", &cameraTransform_.rotate.y, 0.01f);
-		ImGui::DragFloat("CameraRotateZ", &cameraTransform_.rotate.z, 0.01f);
 	}
 
 	if (directionalLightData_ != nullptr) {
@@ -134,8 +109,6 @@ void Object3dRenderer::DrawDebugGui() {
 		// ライト方向は単位ベクトルである必要があるので正規化する
 		directionalLightData_->direction = Normalize(directionalLightData_->direction);
 	}
-
-	ImGui::End();
 #endif
 }
 
@@ -171,26 +144,6 @@ void Object3dRenderer::Draw(ID3D12GraphicsCommandList* commandList) {
 	// OBJのFaceから展開した頂点数で描画命令を積む
 	commandList->DrawInstanced(static_cast<UINT>(modelData_.vertices.size()), 1, 0, 0);
 }
-
-bool Object3dRenderer::LoadModel() {
-	// ResourcesフォルダのOBJを読み込んでModelDataにする
-	modelData_ = LoadObjFile("Resources", "plane.obj");
-	assert(!modelData_.vertices.empty());
-	assert(!modelData_.material.textureFilePath.empty());
-
-	if (modelData_.vertices.empty() || modelData_.material.textureFilePath.empty()) {
-		return false;
-	}
-
-	Log(std::format(
-		"Complete load model, vertices:{}, texture:{}!!!\n",
-		modelData_.vertices.size(),
-		modelData_.material.textureFilePath
-	));
-
-	return true;
-}
-
 
 bool Object3dRenderer::CreateTexture(
 	const Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList>& commandList,
@@ -718,7 +671,7 @@ bool Object3dRenderer::CreateTransformationMatrixResource() {
 	return true;
 }
 
-void Object3dRenderer::UpdateTransformationMatrix() {
+void Object3dRenderer::UpdateTransformationMatrix(const ICamera& camera) {
 	if (transformationMatrixData_ == nullptr) {
 		return;
 	}
@@ -730,18 +683,10 @@ void Object3dRenderer::UpdateTransformationMatrix() {
 		transform_.translate
 	);
 
-	// カメラのViewMatrixを作成する
-	Matrix4x4 viewMatrix =
-		useDebugCamera_ ? debugCamera_.GetViewMatrix() : CreateDefaultViewMatrix();
-
-	// 透視投影行列を作成する
-	Matrix4x4 projectionMatrix =
-		useDebugCamera_ ? debugCamera_.GetProjectionMatrix() : CreateProjectionMatrix();
-
 	// World、View、Projectionをまとめる
 	Matrix4x4 worldViewProjectionMatrix = Multiply(
 		worldMatrix,
-		Multiply(viewMatrix, projectionMatrix)
+		Multiply(camera.GetViewMatrix(), camera.GetProjectionMatrix())
 	);
 
 	// VertexShaderへ渡す行列を更新する
@@ -749,24 +694,5 @@ void Object3dRenderer::UpdateTransformationMatrix() {
 	transformationMatrixData_->World = worldMatrix;
 }
 
-Matrix4x4 Object3dRenderer::CreateDefaultViewMatrix() const {
-	// 通常カメラのViewMatrixを作成する
-	Matrix4x4 cameraMatrix = MakeAffineMatrix(
-		cameraTransform_.scale,
-		cameraTransform_.rotate,
-		cameraTransform_.translate
-	);
-
-	return Inverse(cameraMatrix);
-}
-
-Matrix4x4 Object3dRenderer::CreateProjectionMatrix() const {
-	// 透視投影行列を作成する
-	return MakePerspectiveFovMatrix(
-		0.45f,
-		float(WinConfig::kClientWidth) / float(WinConfig::kClientHeight),
-		0.1f,
-		100.0f
-	);
-}
+} // namespace Homura
 

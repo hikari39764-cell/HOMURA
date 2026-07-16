@@ -2,6 +2,7 @@
 #include <Windows.h>
 #include <cstdint>
 
+namespace Homura {
 namespace WinConfig {
 
 	constexpr int32_t kClientWidth = 1280;
@@ -15,3 +16,4 @@ namespace WinConfig {
 		WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
 
 } // namespace WinConfig
+} // namespace Homura
