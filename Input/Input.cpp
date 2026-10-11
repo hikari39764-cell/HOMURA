@@ -137,31 +137,25 @@ void Input::Update() {
 
 	HRESULT hr = keyboard_->Acquire();
 
-	if (FAILED(hr)) {
-		// フォーカスが外れている間は入力なしとして扱う
-		std::memset(key_, 0, sizeof(key_));
-		return;
+	if (SUCCEEDED(hr)) {
+		// キーの入力状態を取得する
+		hr = keyboard_->GetDeviceState(static_cast<DWORD>(sizeof(key_)), key_);
 	}
 
-	// キーの入力状態を取得する
-	hr = keyboard_->GetDeviceState(static_cast<DWORD>(sizeof(key_)), key_);
-
 	if (FAILED(hr)) {
+		// フォーカスが外れている間は入力なしとして扱う
 		std::memset(key_, 0, sizeof(key_));
 	}
 
 	hr = mouse_->Acquire();
 
-	if (FAILED(hr)) {
-		// フォーカスが外れている間は入力なしとして扱う
-		std::memset(&mouseState_, 0, sizeof(mouseState_));
-		return;
+	if (SUCCEEDED(hr)) {
+		// マウスの相対移動量とボタン状態を取得する
+		hr = mouse_->GetDeviceState(static_cast<DWORD>(sizeof(mouseState_)), &mouseState_);
 	}
 
-	// マウスの相対移動量とボタン状態を取得する
-	hr = mouse_->GetDeviceState(static_cast<DWORD>(sizeof(mouseState_)), &mouseState_);
-
 	if (FAILED(hr)) {
+		// フォーカスが外れている間は入力なしとして扱う
 		std::memset(&mouseState_, 0, sizeof(mouseState_));
 	}
 }

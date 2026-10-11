@@ -1,6 +1,7 @@
 #include <Windows.h>
 
 #include <cassert>
+#include <memory>
 
 #include "WinApp/WinApp.h"
 #include "DebugTools/Logger/Logger.h"
@@ -34,7 +35,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int showCmd) {
 		WinApp winApp;
 		FrameRenderer frameRenderer;
 		Audio audio;
-		Input input;
+		// 入力クラスを動的に生成し、スコープ終了時に解放する
+		auto input = std::make_unique<Input>();
 
 		if (!winApp.Initialize(showCmd)) {
 			result = -1;
@@ -42,7 +44,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int showCmd) {
 			result = -1;
 		} else if (!audio.Initialize()) {
 			result = -1;
-		} else if (!input.Initialize(hInstance, winApp.GetHwnd())) {
+		} else if (!input->Initialize(hInstance, winApp.GetHwnd())) {
 			result = -1;
 		} else {
 			// 再生テスト用のwavファイルを読み込んで、アプリ起動時に一度だけ鳴らす
@@ -57,20 +59,20 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int showCmd) {
 					}
 
 					// キーボード入力を毎フレーム更新する
-					input.Update();
+					input->Update();
 
 					// 入力確認用。0キーを押した瞬間だけ出力する
-					if (input.IsTriggerKey(DIK_0)) {
+					if (input->IsTriggerKey(DIK_0)) {
 						OutputDebugStringA("Ohhhhhhhhh\n");
 					}
 
 					// デバッグ用にEscapeキーでアプリを終了できるようにする
-					if (input.IsTriggerKey(DIK_ESCAPE)) {
+					if (input->IsTriggerKey(DIK_ESCAPE)) {
 						break;
 					}
 
 					// 入力をもとにデバッグカメラなどの更新を行う
-					frameRenderer.Update(input);
+					frameRenderer.Update(*input);
 
 					// 再生が終わったSourceVoiceを毎フレーム片付ける
 					audio.Update();
@@ -81,7 +83,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int showCmd) {
 			}
 		}
 
-		input.Finalize();
+		input->Finalize();
 		audio.Finalize();
 		frameRenderer.Finalize();
 		winApp.Finalize();
