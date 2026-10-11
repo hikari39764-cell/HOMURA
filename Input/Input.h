@@ -12,6 +12,8 @@
 
 namespace Homura {
 
+class WinApp;
+
 struct MouseMove {
 	LONG x;
 	LONG y;
@@ -26,7 +28,7 @@ public:
 	~Input();
 
 	// 入力デバイスを初期化する
-	bool Initialize(HINSTANCE hInstance, HWND hwnd);
+	bool Initialize(WinApp* winApp);
 	// 入力デバイスを解放する
 	void Finalize();
 	// 前フレームの状態を保存して入力を更新する
@@ -52,6 +54,8 @@ private:
 	bool IsMouseButtonDown(const DIMOUSESTATE2& mouseState, uint8_t buttonNumber) const;
 
 private:
+	// 入力先のウィンドウを借用する
+	WinApp* winApp_ = nullptr;
 	Microsoft::WRL::ComPtr<IDirectInput8> directInput_;
 	Microsoft::WRL::ComPtr<IDirectInputDevice8> keyboard_;
 	Microsoft::WRL::ComPtr<IDirectInputDevice8> mouse_;

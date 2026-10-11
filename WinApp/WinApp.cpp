@@ -1,5 +1,7 @@
 #include "WinApp.h"
-#include "WinConfig.h"
+#include <objbase.h>
+
+#pragma comment(lib, "ole32.lib")
 
 #ifdef USE_IMGUI
 #include "externals/imgui/imgui_impl_win32.h"
@@ -31,6 +33,23 @@ LRESULT CALLBACK WinApp::WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
 }
 
 bool WinApp::Initialize(int nCmdShow) {
+	if (hwnd_ != nullptr) {
+		return true;
+	}
+
+	// COMを初期化
+	HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+	if (FAILED(hr)) {
+		MessageBox(
+			nullptr,
+			L"COMの初期化に失敗しました。",
+			L"Error",
+			MB_OK | MB_ICONERROR
+		);
+		return false;
+	}
+	isComInitialized_ = true;
+
 	// ウィンドウクラスの設定
 	wc_ = {};
 	wc_.lpfnWndProc = WindowProc;
@@ -46,13 +65,14 @@ bool WinApp::Initialize(int nCmdShow) {
 			L"Error",
 			MB_OK | MB_ICONERROR
 		);
+		Finalize();
 		return false;
 	}
 	isClassRegistered_ = true;
 
 	// クライアント領域のサイズを元に実際のウィンドウサイズを計算
-	wrc_ = { 0, 0, WinConfig::kClientWidth, WinConfig::kClientHeight };
-	if (AdjustWindowRect(&wrc_, WinConfig::kWindowStyle, false) == FALSE) {
+	RECT windowRect = { 0, 0, kClientWidth, kClientHeight };
+	if (AdjustWindowRect(&windowRect, WinConfig::kWindowStyle, false) == FALSE) {
 		MessageBox(
 			nullptr,
 			L"ウィンドウサイズの調整に失敗しました。",
@@ -70,8 +90,8 @@ bool WinApp::Initialize(int nCmdShow) {
 		WinConfig::kWindowStyle,
 		CW_USEDEFAULT,
 		CW_USEDEFAULT,
-		wrc_.right - wrc_.left,
-		wrc_.bottom - wrc_.top,
+		windowRect.right - windowRect.left,
+		windowRect.bottom - windowRect.top,
 		nullptr,
 		nullptr,
 		wc_.hInstance,
@@ -107,6 +127,11 @@ void WinApp::Finalize() {
 	if (isClassRegistered_) {
 		UnregisterClass(wc_.lpszClassName, wc_.hInstance);
 		isClassRegistered_ = false;
+	}
+
+	if (isComInitialized_) {
+		CoUninitialize();
+		isComInitialized_ = false;
 	}
 }
 

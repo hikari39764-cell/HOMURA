@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include "DebugTools/Logger/Logger.h"
+#include "WinApp/WinApp.h"
 
 #pragma comment(lib, "dinput8.lib")
 #pragma comment(lib, "dxguid.lib")
@@ -15,14 +16,21 @@ Input::~Input() {
 	Finalize();
 }
 
-bool Input::Initialize(HINSTANCE hInstance, HWND hwnd) {
+bool Input::Initialize(WinApp* winApp) {
+	assert(winApp != nullptr);
+	if (winApp == nullptr) {
+		return false;
+	}
+
 	if (initialized_) {
 		return true;
 	}
 
+	winApp_ = winApp;
+
 	// DirectInputの本体を生成する
 	HRESULT hr = DirectInput8Create(
-		hInstance,
+		winApp_->GetHInstance(),
 		DIRECTINPUT_VERSION,
 		IID_IDirectInput8,
 		reinterpret_cast<void**>(directInput_.GetAddressOf()),
@@ -31,6 +39,7 @@ bool Input::Initialize(HINSTANCE hInstance, HWND hwnd) {
 	assert(SUCCEEDED(hr));
 
 	if (FAILED(hr)) {
+		Finalize();
 		Log("Failed to create DirectInput.\n");
 		return false;
 	}
@@ -40,7 +49,7 @@ bool Input::Initialize(HINSTANCE hInstance, HWND hwnd) {
 	assert(SUCCEEDED(hr));
 
 	if (FAILED(hr)) {
-		directInput_.Reset();
+		Finalize();
 		Log("Failed to create keyboard device.\n");
 		return false;
 	}
@@ -56,7 +65,7 @@ bool Input::Initialize(HINSTANCE hInstance, HWND hwnd) {
 	}
 
 	// 画面が手前にある時だけ、他のアプリと共有しながら入力を受け取る
-	hr = keyboard_->SetCooperativeLevel(hwnd, DISCL_FOREGROUND | DISCL_NONEXCLUSIVE | DISCL_NOWINKEY);
+	hr = keyboard_->SetCooperativeLevel(winApp_->GetHwnd(), DISCL_FOREGROUND | DISCL_NONEXCLUSIVE | DISCL_NOWINKEY);
 	assert(SUCCEEDED(hr));
 
 	if (FAILED(hr)) {
@@ -86,7 +95,7 @@ bool Input::Initialize(HINSTANCE hInstance, HWND hwnd) {
 	}
 
 	// 画面が手前にある時だけ、他のアプリと共有しながらマウス入力を受け取る
-	hr = mouse_->SetCooperativeLevel(hwnd, DISCL_FOREGROUND | DISCL_NONEXCLUSIVE);
+	hr = mouse_->SetCooperativeLevel(winApp_->GetHwnd(), DISCL_FOREGROUND | DISCL_NONEXCLUSIVE);
 	assert(SUCCEEDED(hr));
 
 	if (FAILED(hr)) {
@@ -117,6 +126,7 @@ void Input::Finalize() {
 	keyboard_.Reset();
 	mouse_.Reset();
 	directInput_.Reset();
+	winApp_ = nullptr;
 
 	std::memset(key_, 0, sizeof(key_));
 	std::memset(previousKey_, 0, sizeof(previousKey_));

@@ -1,6 +1,3 @@
-#include <Windows.h>
-
-#include <cassert>
 #include <memory>
 
 #include "WinApp/WinApp.h"
@@ -11,16 +8,7 @@
 #include "Audio/Audio.h"
 #include "Input/Input.h"
 
-#pragma comment(lib, "ole32.lib")
-
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int showCmd) {
-	HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-	assert(SUCCEEDED(hr));
-
-	if (FAILED(hr)) {
-		return -1;
-	}
-
+int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int showCmd) {
 	using namespace Homura;
 
 	InitializeCrashHandler();
@@ -32,19 +20,20 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int showCmd) {
 		// DirectX関連のComPtrが解放された後にリークチェックを走らせるため、先に作って最後に破棄させる
 		D3DResourceLeakChecker leakChecker;
 
-		WinApp winApp;
+		// ウィンドウは入力や描画から借りて使い、最後に解放する
+		auto winApp = std::make_unique<WinApp>();
 		FrameRenderer frameRenderer;
 		Audio audio;
 		// 入力クラスを動的に生成し、スコープ終了時に解放する
 		auto input = std::make_unique<Input>();
 
-		if (!winApp.Initialize(showCmd)) {
+		if (!winApp->Initialize(showCmd)) {
 			result = -1;
-		} else if (!frameRenderer.Initialize(winApp.GetHwnd())) {
+		} else if (!frameRenderer.Initialize(winApp->GetHwnd())) {
 			result = -1;
 		} else if (!audio.Initialize()) {
 			result = -1;
-		} else if (!input->Initialize(hInstance, winApp.GetHwnd())) {
+		} else if (!input->Initialize(winApp.get())) {
 			result = -1;
 		} else {
 			// 再生テスト用のwavファイルを読み込んで、アプリ起動時に一度だけ鳴らす
@@ -54,7 +43,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int showCmd) {
 				result = -1;
 			} else {
 				while (true) {
-					if (winApp.ProcessMessage()) {
+					if (winApp->ProcessMessage()) {
 						break;
 					}
 
@@ -86,11 +75,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int showCmd) {
 		input->Finalize();
 		audio.Finalize();
 		frameRenderer.Finalize();
-		winApp.Finalize();
+		winApp->Finalize();
 	}
 
 	FinalizeLogger();
-	CoUninitialize();
 
 	return result;
 }
