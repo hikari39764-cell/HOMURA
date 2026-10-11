@@ -14,17 +14,18 @@
 namespace Homura {
 
 class Input;
+class WinApp;
 
 /// <summary>
 /// 1フレームの描画全体を管理する
 /// </summary>
 class FrameRenderer {
 public:
-	bool Initialize(HWND hwnd);
+	bool Initialize(WinApp* winApp);
 	void Finalize();
 
 	void Update(const Input& input);
-	void Draw();
+	bool Draw();
 
 private:
 	bool CreateObject3dRenderer();

@@ -22,14 +22,14 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int showCmd) {
 
 		// ウィンドウは入力や描画から借りて使い、最後に解放する
 		auto winApp = std::make_unique<WinApp>();
-		FrameRenderer frameRenderer;
+		auto frameRenderer = std::make_unique<FrameRenderer>();
 		Audio audio;
 		// 入力クラスを動的に生成し、スコープ終了時に解放する
 		auto input = std::make_unique<Input>();
 
 		if (!winApp->Initialize(showCmd)) {
 			result = -1;
-		} else if (!frameRenderer.Initialize(winApp->GetHwnd())) {
+		} else if (!frameRenderer->Initialize(winApp.get())) {
 			result = -1;
 		} else if (!audio.Initialize()) {
 			result = -1;
@@ -61,20 +61,23 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int showCmd) {
 					}
 
 					// 入力をもとにデバッグカメラなどの更新を行う
-					frameRenderer.Update(*input);
+					frameRenderer->Update(*input);
 
 					// 再生が終わったSourceVoiceを毎フレーム片付ける
 					audio.Update();
 
 					// 毎フレームBackBufferを指定色でクリアして画面に表示する
-					frameRenderer.Draw();
+					if (!frameRenderer->Draw()) {
+						result = -1;
+						break;
+					}
 				}
 			}
 		}
 
 		input->Finalize();
 		audio.Finalize();
-		frameRenderer.Finalize();
+		frameRenderer->Finalize();
 		winApp->Finalize();
 	}
 

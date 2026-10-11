@@ -7,10 +7,22 @@
 
 namespace Homura {
 
+class WinApp;
+
+/// <summary>
+/// DirectX12の初期化と描画の開始・終了を管理する
+/// </summary>
 class D3D12Context {
 public:
-	bool Initialize(HWND hwnd);
+	D3D12Context() = default;
+	~D3D12Context();
+	D3D12Context(const D3D12Context&) = delete;
+	D3D12Context& operator=(const D3D12Context&) = delete;
+
+	bool Initialize(WinApp* winApp);
 	void Finalize();
+	// Resourceを解放する前にGPUの完了を確認する
+	bool WaitForGpu();
 
 	bool ResetCommandList();
 	bool ExecuteCommandListAndWait();
@@ -34,7 +46,7 @@ private:
 	bool CreateDevice();
 	bool CreateCommandQueue();
 	bool CreateCommandList();
-	bool CreateSwapChain(HWND hwnd);
+	bool CreateSwapChain();
 	bool CreateRTVDescriptorHeap();
 	bool CreateSRVDescriptorHeap();
 	bool CreateDSVDescriptorHeap();
@@ -49,19 +61,17 @@ private:
 		UINT numDescriptors,
 		bool shaderVisible
 	);
-	D3D12_CPU_DESCRIPTOR_HANDLE GetCPUDescriptorHandle(
+	static D3D12_CPU_DESCRIPTOR_HANDLE GetCPUDescriptorHandle(
 		const Microsoft::WRL::ComPtr<ID3D12DescriptorHeap>& descriptorHeap,
 		UINT descriptorSize,
 		UINT index
-	) const;
-	D3D12_GPU_DESCRIPTOR_HANDLE GetGPUDescriptorHandle(
+	);
+	static D3D12_GPU_DESCRIPTOR_HANDLE GetGPUDescriptorHandle(
 		const Microsoft::WRL::ComPtr<ID3D12DescriptorHeap>& descriptorHeap,
 		UINT descriptorSize,
 		UINT index
-	) const;
+	);
 	void CreateViewportAndScissor();
-
-	void WaitForGpu();
 
 private:
 	static constexpr UINT kBackBufferCount = 2;
@@ -69,6 +79,10 @@ private:
 	static constexpr UINT kDSVDescriptorCount = 1;
 
 private:
+	// ウィンドウは呼び出し元が管理するので、ここでは参照だけ保持する
+	WinApp* winApp_ = nullptr;
+	bool initialized_ = false;
+
 	Microsoft::WRL::ComPtr<IDXGIFactory7> dxgiFactory_;
 	Microsoft::WRL::ComPtr<IDXGIAdapter4> useAdapter_;
 	Microsoft::WRL::ComPtr<ID3D12Device> device_;

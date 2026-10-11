@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <format>
+#include <limits>
 #include <d3d12sdklayers.h>
 
 #pragma comment(lib, "d3d12.lib")
@@ -9,12 +10,26 @@
 #pragma comment(lib, "dxguid.lib")
 
 #include "DebugTools/Logger/Logger.h"
-#include "WinApp/WinConfig.h"
+#include "WinApp/WinApp.h"
 
 
 namespace Homura {
 
-bool D3D12Context::Initialize(HWND hwnd) {
+D3D12Context::~D3D12Context() {
+	Finalize();
+}
+
+bool D3D12Context::Initialize(WinApp* winApp) {
+	assert(winApp != nullptr);
+	if (winApp == nullptr || winApp->GetHwnd() == nullptr) {
+		Log("Failed to initialize DirectX: window is not initialized.\n");
+		return false;
+	}
+
+	// 前回の初期化途中のResourceも片付けてから、ウィンドウを借りる
+	Finalize();
+	winApp_ = winApp;
+
 	// DebugLayerはD3D12Deviceを作る前に有効化
 	EnableDebugLayer();
 
@@ -42,7 +57,7 @@ bool D3D12Context::Initialize(HWND hwnd) {
 	}
 
 	// 画面表示用のSwapChainを作成する
-	if (!CreateSwapChain(hwnd)) {
+	if (!CreateSwapChain()) {
 		return false;
 	}
 
@@ -89,6 +104,7 @@ bool D3D12Context::Initialize(HWND hwnd) {
 	// 画面全体に描画するためのViewportとScissorを設定する
 	CreateViewportAndScissor();
 
+	initialized_ = true;
 	return true;
 }
 
@@ -156,18 +172,48 @@ void D3D12Context::SetupDebugInfoQueue() {
 
 void D3D12Context::Finalize() {
 	// GPUがまだResourceを使用している可能性があるので、ComPtrの解放前に待機する
-	if (commandQueue_.Get() != nullptr && fence_.Get() != nullptr) {
+	if (commandQueue_ != nullptr && fence_ != nullptr && fenceEvent_ != nullptr) {
 		WaitForGpu();
 	}
-
 
 	if (fenceEvent_ != nullptr) {
 		CloseHandle(fenceEvent_);
 		fenceEvent_ = nullptr;
 	}
+
+	// 何度呼ばれても同じ状態になるように、所有しているResourceを解放する
+	fence_.Reset();
+	depthStencilResource_.Reset();
+	dsvDescriptorHeap_.Reset();
+	srvDescriptorHeap_.Reset();
+	rtvDescriptorHeap_.Reset();
+	for (UINT i = 0; i < kBackBufferCount; ++i) {
+		swapChainResources_[i].Reset();
+		rtvHandles_[i] = {};
+	}
+	swapChain_.Reset();
+	commandList_.Reset();
+	commandAllocator_.Reset();
+	commandQueue_.Reset();
+	device_.Reset();
+	useAdapter_.Reset();
+	dxgiFactory_.Reset();
+
+	backBufferIndex_ = 0;
+	rtvDescriptorSize_ = 0;
+	srvDescriptorSize_ = 0;
+	fenceValue_ = 0;
+	viewport_ = {};
+	scissorRect_ = {};
+	initialized_ = false;
+	winApp_ = nullptr;
 }
 
 bool D3D12Context::ResetCommandList() {
+	if (!initialized_) {
+		return false;
+	}
+
 	HRESULT hr = commandAllocator_->Reset();
 	assert(SUCCEEDED(hr));
 
@@ -182,6 +228,10 @@ bool D3D12Context::ResetCommandList() {
 }
 
 bool D3D12Context::ExecuteCommandListAndWait() {
+	if (!initialized_) {
+		return false;
+	}
+
 	HRESULT hr = commandList_->Close();
 	assert(SUCCEEDED(hr));
 
@@ -191,20 +241,22 @@ bool D3D12Context::ExecuteCommandListAndWait() {
 
 	ID3D12CommandList* commandLists[] = { commandList_.Get() };
 	commandQueue_->ExecuteCommandLists(1, commandLists);
-	WaitForGpu();
-
-	return true;
+	return WaitForGpu();
 }
 
 bool D3D12Context::BeginFrame() {
-	// ???????BackBuffer????SwapChain??????
+	if (!initialized_) {
+		return false;
+	}
+
+	// 今回描画するBackBufferの番号をSwapChainから取得する
 	backBufferIndex_ = swapChain_->GetCurrentBackBufferIndex();
 
 	if (!ResetCommandList()) {
 		return false;
 	}
 
-	// BackBuffer?????????????????
+	// BackBufferを描画先として使える状態にする
 	D3D12_RESOURCE_BARRIER barrier{};
 	barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
 	barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
@@ -215,18 +267,18 @@ bool D3D12Context::BeginFrame() {
 
 	commandList_->ResourceBarrier(1, &barrier);
 
-	// DSV?DescriptorHeap????????????
+	// DSV用DescriptorHeapの先頭ハンドルを取得する
 	D3D12_CPU_DESCRIPTOR_HANDLE dsvHandle =
 		dsvDescriptorHeap_->GetCPUDescriptorHandleForHeapStart();
 
-	// ????????RTV?DSV?????
+	// 描画先のRTVとDSVを設定する
 	commandList_->OMSetRenderTargets(1, &rtvHandles_[backBufferIndex_], false, &dsvHandle);
 
-	// ????????????????
+	// 描画先を指定した色でクリアする
 	const float clearColor[] = { 0.1f, 0.25f, 0.5f, 1.0f };
 	commandList_->ClearRenderTargetView(rtvHandles_[backBufferIndex_], clearColor, 0, nullptr);
 
-	// ????????1.0f??????
+	// 深度値を最も奥の1.0fでクリアする
 	commandList_->ClearDepthStencilView(
 		dsvHandle,
 		D3D12_CLEAR_FLAG_DEPTH,
@@ -236,7 +288,7 @@ bool D3D12Context::BeginFrame() {
 		nullptr
 	);
 
-	// ?????????
+	// 描画範囲を設定する
 	commandList_->RSSetViewports(1, &viewport_);
 	commandList_->RSSetScissorRects(1, &scissorRect_);
 
@@ -244,7 +296,11 @@ bool D3D12Context::BeginFrame() {
 }
 
 bool D3D12Context::EndFrame() {
-	// BackBuffer??????????
+	if (!initialized_) {
+		return false;
+	}
+
+	// BackBufferを画面に表示できる状態にする
 	D3D12_RESOURCE_BARRIER barrier{};
 	barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
 	barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
@@ -255,7 +311,7 @@ bool D3D12Context::EndFrame() {
 
 	commandList_->ResourceBarrier(1, &barrier);
 
-	// CommandList????????
+	// CommandListへの命令の記録を終える
 	HRESULT hr = commandList_->Close();
 	assert(SUCCEEDED(hr));
 
@@ -263,25 +319,29 @@ bool D3D12Context::EndFrame() {
 		return false;
 	}
 
-	// GPU?CommandList????????
+	// GPUにCommandListの実行を依頼する
 	ID3D12CommandList* commandLists[] = { commandList_.Get() };
 	commandQueue_->ExecuteCommandLists(1, commandLists);
 
-	// ????????????BackBuffer?????
+	// 描画したBackBufferを画面に表示する
 	hr = swapChain_->Present(1, 0);
 	assert(SUCCEEDED(hr));
 
 	if (FAILED(hr)) {
+		Log(std::format("Failed to present BackBuffer: {:#x}\n", static_cast<unsigned long>(hr)));
 		return false;
 	}
 
-	// ?????GPU??????
-	WaitForGpu();
-	return true;
+	// 次のフレームでResourceを使い直す前にGPUの完了を待つ
+	return WaitForGpu();
 }
 
 void D3D12Context::SetShaderVisibleDescriptorHeap() {
-	// Shader??????DescriptorHeap?????
+	if (!initialized_) {
+		return;
+	}
+
+	// Shaderから参照するDescriptorHeapを設定する
 	ID3D12DescriptorHeap* descriptorHeaps[] = {
 		srvDescriptorHeap_.Get()
 	};
@@ -314,35 +374,39 @@ bool D3D12Context::CreateFactory() {
 
 bool D3D12Context::SelectAdapter() {
 	// 高性能順にアダプタを列挙して、使用するGPUを決める
-	for (UINT i = 0;
-		dxgiFactory_->EnumAdapterByGpuPreference(
+	for (UINT i = 0; ; ++i) {
+		Microsoft::WRL::ComPtr<IDXGIAdapter4> adapter;
+		HRESULT hr = dxgiFactory_->EnumAdapterByGpuPreference(
 			i,
 			DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE,
-			IID_PPV_ARGS(&useAdapter_)) != DXGI_ERROR_NOT_FOUND;
-			++i) {
+			IID_PPV_ARGS(&adapter)
+		);
+		if (hr == DXGI_ERROR_NOT_FOUND) {
+			break;
+		}
+		if (FAILED(hr)) {
+			Log(std::format("Failed to enumerate GPU adapter: {:#x}\n", static_cast<unsigned long>(hr)));
+			return false;
+		}
 
 		DXGI_ADAPTER_DESC3 adapterDesc{};
-		HRESULT hr = useAdapter_->GetDesc3(&adapterDesc);
-		assert(SUCCEEDED(hr));
+		hr = adapter->GetDesc3(&adapterDesc);
+		if (FAILED(hr)) {
+			Log(std::format("Failed to get GPU adapter description: {:#x}\n", static_cast<unsigned long>(hr)));
+			return false;
+		}
 
 		// ソフトウェアアダプタでなければ採用する
 		if (!(adapterDesc.Flags & DXGI_ADAPTER_FLAG3_SOFTWARE)) {
+			useAdapter_ = adapter;
 			Log(std::format(L"Use Adapter:{}\n", adapterDesc.Description));
-			break;
+			return true;
 		}
-
-		// ソフトウェアアダプタなら候補から外す
-		useAdapter_.Reset();
 	}
 
 	// 有効なアダプタが見つからなければ起動できない
-	assert(useAdapter_ != nullptr);
-
-	if (useAdapter_ == nullptr) {
-		return false;
-	}
-
-	return true;
+	Log("Failed to find a hardware GPU adapter.\n");
+	return false;
 }
 
 bool D3D12Context::CreateDevice() {
@@ -416,7 +480,7 @@ bool D3D12Context::CreateCommandList() {
 		return false;
 	}
 
-	//　CommandListを作成する
+	// CommandListを作成する
 	hr = device_->CreateCommandList(
 		0,
 		D3D12_COMMAND_LIST_TYPE_DIRECT,
@@ -430,7 +494,7 @@ bool D3D12Context::CreateCommandList() {
 		return false;
 	}
 
-	// 一度閉じて
+	// 描画開始時にResetできるように一度閉じる
 	hr = commandList_->Close();
 	assert(SUCCEEDED(hr));
 
@@ -442,11 +506,11 @@ bool D3D12Context::CreateCommandList() {
 	return true;
 }
 
-bool D3D12Context::CreateSwapChain(HWND hwnd) {
+bool D3D12Context::CreateSwapChain() {
 	// SwapChainの設定を行う
 	DXGI_SWAP_CHAIN_DESC1 swapChainDesc{};
-	swapChainDesc.Width = WinConfig::kClientWidth;
-	swapChainDesc.Height = WinConfig::kClientHeight;
+	swapChainDesc.Width = WinApp::kClientWidth;
+	swapChainDesc.Height = WinApp::kClientHeight;
 	swapChainDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
 	swapChainDesc.SampleDesc.Count = 1;
 	swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
@@ -458,7 +522,7 @@ bool D3D12Context::CreateSwapChain(HWND hwnd) {
 	// CommandQueue、ウィンドウハンドル、設定を渡してSwapChainを作成する
 	HRESULT hr = dxgiFactory_->CreateSwapChainForHwnd(
 		commandQueue_.Get(),
-		hwnd,
+		winApp_->GetHwnd(),
 		&swapChainDesc,
 		nullptr,
 		nullptr,
@@ -597,8 +661,8 @@ bool D3D12Context::CreateRTV() {
 bool D3D12Context::CreateDepthStencilResource() {
 	// DepthStencilとして使うTextureResourceの設定
 	D3D12_RESOURCE_DESC resourceDesc{};
-	resourceDesc.Width = WinConfig::kClientWidth;
-	resourceDesc.Height = WinConfig::kClientHeight;
+	resourceDesc.Width = WinApp::kClientWidth;
+	resourceDesc.Height = WinApp::kClientHeight;
 	resourceDesc.MipLevels = 1;
 	resourceDesc.DepthOrArraySize = 1;
 	resourceDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
@@ -694,7 +758,7 @@ D3D12_CPU_DESCRIPTOR_HANDLE D3D12Context::GetCPUDescriptorHandle(
 	const Microsoft::WRL::ComPtr<ID3D12DescriptorHeap>& descriptorHeap,
 	UINT descriptorSize,
 	UINT index
-) const {
+) {
 	// 指定したDescriptorHeapの指定した位置のCPUHandleを取得する
 	D3D12_CPU_DESCRIPTOR_HANDLE handleCPU =
 		descriptorHeap->GetCPUDescriptorHandleForHeapStart();
@@ -708,7 +772,7 @@ D3D12_GPU_DESCRIPTOR_HANDLE D3D12Context::GetGPUDescriptorHandle(
 	const Microsoft::WRL::ComPtr<ID3D12DescriptorHeap>& descriptorHeap,
 	UINT descriptorSize,
 	UINT index
-) const {
+) {
 	// 指定したDescriptorHeapの指定した位置のGPUHandleを取得する
 	D3D12_GPU_DESCRIPTOR_HANDLE handleGPU =
 		descriptorHeap->GetGPUDescriptorHandleForHeapStart();
@@ -738,8 +802,8 @@ D3D12_GPU_DESCRIPTOR_HANDLE D3D12Context::GetSRVGPUDescriptorHandle(UINT index) 
 
 void D3D12Context::CreateViewportAndScissor() {
 	// Viewportを設定する
-	viewport_.Width = static_cast<float>(WinConfig::kClientWidth);
-	viewport_.Height = static_cast<float>(WinConfig::kClientHeight);
+	viewport_.Width = static_cast<float>(WinApp::kClientWidth);
+	viewport_.Height = static_cast<float>(WinApp::kClientHeight);
 	viewport_.TopLeftX = 0.0f;
 	viewport_.TopLeftY = 0.0f;
 	viewport_.MinDepth = 0.0f;
@@ -747,14 +811,22 @@ void D3D12Context::CreateViewportAndScissor() {
 
 	// Scissorを設定する
 	scissorRect_.left = 0;
-	scissorRect_.right = WinConfig::kClientWidth;
+	scissorRect_.right = WinApp::kClientWidth;
 	scissorRect_.top = 0;
-	scissorRect_.bottom = WinConfig::kClientHeight;
+	scissorRect_.bottom = WinApp::kClientHeight;
 
 	Log("Complete create Viewport and Scissor!!!\n");
 }
 
-void D3D12Context::WaitForGpu() {
+bool D3D12Context::WaitForGpu() {
+	// 初期化前と終了後には、待機するGPU処理がない
+	if (commandQueue_ == nullptr) {
+		return true;
+	}
+	if (fence_ == nullptr || fenceEvent_ == nullptr) {
+		return false;
+	}
+
 	// Fence値を1つ進める
 	++fenceValue_;
 
@@ -763,17 +835,41 @@ void D3D12Context::WaitForGpu() {
 	// CommandQueueにSignalを送る
 	// GPUがここまで実行し終わったら、FenceにwaitFenceValueを書き込む
 	HRESULT hr = commandQueue_->Signal(fence_.Get(), waitFenceValue);
-	assert(SUCCEEDED(hr));
+	if (FAILED(hr)) {
+		Log(std::format("Failed to signal GPU fence: {:#x}\n", static_cast<unsigned long>(hr)));
+		return false;
+	}
+
+	// Deviceが失われた時は完了値が最大値になるので、成功として扱わない
+	UINT64 completedValue = fence_->GetCompletedValue();
+	if (completedValue == (std::numeric_limits<UINT64>::max)()) {
+		Log("Failed to wait for GPU: device was removed.\n");
+		return false;
+	}
 
 	// GPUがまだ指定したFence値まで到達していなければ待機する
-	if (fence_->GetCompletedValue() < waitFenceValue) {
+	if (completedValue < waitFenceValue) {
 		// 指定したFence値に到達したら、fenceEvent_を通知状態にしてもらう
 		hr = fence_->SetEventOnCompletion(waitFenceValue, fenceEvent_);
-		assert(SUCCEEDED(hr));
+		if (FAILED(hr)) {
+			Log(std::format("Failed to set GPU fence event: {:#x}\n", static_cast<unsigned long>(hr)));
+			return false;
+		}
 
 		// GPUの処理が終わるまでCPU側を待たせる
-		WaitForSingleObject(fenceEvent_, INFINITE);
+		if (WaitForSingleObject(fenceEvent_, INFINITE) != WAIT_OBJECT_0) {
+			Log(std::format("Failed to wait for GPU fence: {}\n", GetLastError()));
+			return false;
+		}
+
+		completedValue = fence_->GetCompletedValue();
+		if (completedValue == (std::numeric_limits<UINT64>::max)()) {
+			Log("Failed to wait for GPU: device was removed.\n");
+			return false;
+		}
 	}
+
+	return completedValue >= waitFenceValue;
 }
 
 } // namespace Homura
