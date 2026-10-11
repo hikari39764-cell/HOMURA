@@ -368,6 +368,9 @@ FodyWeavers.xsd
 # ImGui local layout settings
 imgui.ini
 
+# 描画に使うOBJモデルはビルド生成物と分けて管理する
+!Resources/**/*.obj
+
 # DirectXTex generated shader files
 externals/DirectXTex/Shaders/Compiled/
 
