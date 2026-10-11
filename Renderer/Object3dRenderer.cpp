@@ -1,6 +1,7 @@
 #include "Object3dRenderer.h"
 
 #include <cassert>
+#include <algorithm>
 #include <cstring>
 #include <format>
 #include <dxcapi.h>
@@ -85,15 +86,27 @@ void Object3dRenderer::Finalize() {
 	transformationMatrixResource_.Reset();
 	materialResource_.Reset();
 	vertexResource_.Reset();
-	graphicsPipelineState_.Reset();
+	for (auto& pipelineState : graphicsPipelineStates_) {
+		pipelineState.Reset();
+	}
 	rootSignature_.Reset();
 	device_.Reset();
 }
 
 void Object3dRenderer::DrawDebugGui() {
 #ifdef USE_IMGUI
+	ImGui::PushID(this);
+	int blendMode = static_cast<int>(blendMode_);
+	if (ImGui::Combo("BlendMode", &blendMode, kBlendModeNames, static_cast<int>(BlendMode::Count))) {
+		SetBlendMode(static_cast<BlendMode>(blendMode));
+	}
+	ImGui::DragFloat3("Translate", &transform_.translate.x, 0.01f);
+	ImGui::DragFloat3("Rotate", &transform_.rotate.x, 0.01f);
+	ImGui::DragFloat3("Scale", &transform_.scale.x, 0.01f);
+
 	if (materialData_ != nullptr) {
 		ImGui::ColorEdit4("color", &materialData_->color.x);
+		ImGui::SliderFloat("AlphaCutoff", &materialData_->alphaCutoff, 0.0f, 1.0f);
 
 		bool enableLighting = materialData_->enableLighting != 0;
 		if (ImGui::Checkbox("enableLighting", &enableLighting)) {
@@ -109,6 +122,7 @@ void Object3dRenderer::DrawDebugGui() {
 		// ライト方向は単位ベクトルである必要があるので正規化する
 		directionalLightData_->direction = Normalize(directionalLightData_->direction);
 	}
+	ImGui::PopID();
 #endif
 }
 
@@ -121,7 +135,7 @@ void Object3dRenderer::Draw(ID3D12GraphicsCommandList* commandList) {
 
 	// Shaderと描画設定をまとめたPipelineStateを設定する
 	commandList->SetGraphicsRootSignature(rootSignature_.Get());
-	commandList->SetPipelineState(graphicsPipelineState_.Get());
+	commandList->SetPipelineState(graphicsPipelineStates_[static_cast<size_t>(blendMode_)].Get());
 
 	// Modelの頂点データをInputAssemblerへ渡す
 	commandList->IASetVertexBuffers(0, 1, &vertexBufferView_);
@@ -143,6 +157,52 @@ void Object3dRenderer::Draw(ID3D12GraphicsCommandList* commandList) {
 
 	// OBJのFaceから展開した頂点数で描画命令を積む
 	commandList->DrawInstanced(static_cast<UINT>(modelData_.vertices.size()), 1, 0, 0);
+}
+
+Transform& Object3dRenderer::GetTransform() {
+	return transform_;
+}
+
+const Transform& Object3dRenderer::GetTransform() const {
+	return transform_;
+}
+
+void Object3dRenderer::SetBlendMode(BlendMode blendMode) {
+	if (static_cast<size_t>(blendMode) < graphicsPipelineStates_.size()) {
+		blendMode_ = blendMode;
+	}
+}
+
+BlendMode Object3dRenderer::GetBlendMode() const {
+	return blendMode_;
+}
+
+void Object3dRenderer::SetColor(const Vector4& color) {
+	if (materialData_ != nullptr) {
+		materialData_->color = color;
+	}
+}
+
+void Object3dRenderer::SetMaterialColor(const Vector4& color) {
+	SetColor(color);
+}
+
+void Object3dRenderer::SetAlphaCutoff(float alphaCutoff) {
+	if (materialData_ != nullptr) {
+		materialData_->alphaCutoff = std::clamp(alphaCutoff, 0.0f, 1.0f);
+	}
+}
+
+void Object3dRenderer::SetLightingEnabled(bool enabled) {
+	if (materialData_ != nullptr) {
+		materialData_->enableLighting = enabled ? 1 : 0;
+	}
+}
+
+void Object3dRenderer::SetUVTransform(const Matrix4x4& uvTransform) {
+	if (materialData_ != nullptr) {
+		materialData_->uvTransform = uvTransform;
+	}
 }
 
 bool Object3dRenderer::CreateTexture(
@@ -411,13 +471,6 @@ bool Object3dRenderer::CreateGraphicsPipelineState() {
 	inputLayoutDesc.pInputElementDescs = inputElementDescs;
 	inputLayoutDesc.NumElements = _countof(inputElementDescs);
 
-	// BlendStateの設定
-	D3D12_BLEND_DESC blendDesc{};
-
-	// すべての色要素を書き込む
-	blendDesc.RenderTarget[0].RenderTargetWriteMask =
-		D3D12_COLOR_WRITE_ENABLE_ALL;
-
 	// RasterizerStateの設定
 	D3D12_RASTERIZER_DESC rasterizerDesc{};
 
@@ -454,7 +507,6 @@ bool Object3dRenderer::CreateGraphicsPipelineState() {
 		pixelShaderBlob->GetBufferPointer(),
 		pixelShaderBlob->GetBufferSize()
 	};
-	graphicsPipelineStateDesc.BlendState = blendDesc;
 	graphicsPipelineStateDesc.RasterizerState = rasterizerDesc;
 
 	// DepthStencilをPSOへ設定する
@@ -473,15 +525,18 @@ bool Object3dRenderer::CreateGraphicsPipelineState() {
 	graphicsPipelineStateDesc.SampleDesc.Count = 1;
 	graphicsPipelineStateDesc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
 
-	// 実際に生成
-	hr = device_->CreateGraphicsPipelineState(
-		&graphicsPipelineStateDesc,
-		IID_PPV_ARGS(&graphicsPipelineState_)
-	);
-	assert(SUCCEEDED(hr));
+	// BlendModeごとにPSOを作り、描画時には対応するものを選ぶ
+	for (size_t index = 0; index < graphicsPipelineStates_.size(); ++index) {
+		graphicsPipelineStateDesc.BlendState = MakeBlendDesc(static_cast<BlendMode>(index));
+		hr = device_->CreateGraphicsPipelineState(
+			&graphicsPipelineStateDesc,
+			IID_PPV_ARGS(&graphicsPipelineStates_[index])
+		);
+		assert(SUCCEEDED(hr));
 
-	if (FAILED(hr)) {
-		return false;
+		if (FAILED(hr)) {
+			return false;
+		}
 	}
 
 	Log("Complete create GraphicsPipelineState!!!\n");
@@ -592,9 +647,9 @@ bool Object3dRenderer::CreateMaterialResource() {
 
 	// ModelはLightingする
 	materialData_->enableLighting = true;
+	materialData_->alphaCutoff = 0.5f;
 	materialData_->padding[0] = 0.0f;
 	materialData_->padding[1] = 0.0f;
-	materialData_->padding[2] = 0.0f;
 
 	// 最初は単位行列を設定する
 	materialData_->uvTransform = MakeIdentity4x4();

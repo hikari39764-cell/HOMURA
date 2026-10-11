@@ -4,7 +4,8 @@ struct Material
 {
     float32_t4 color;
     int32_t enableLighting;
-    float32_t3 padding;
+    float32_t alphaCutoff;
+    float32_t2 padding;
     float32_t4x4 uvTransform;
 };
 
@@ -34,6 +35,12 @@ PixelShaderOutput main(VertexShaderOutput input)
     float32_t4 transformedUV = mul(float32_t4(input.texcoord, 0.0f, 1.0f), gMaterial.uvTransform);
     float32_t4 textureColor = gTexture.Sample(gSampler, transformedUV.xy);
 
+    // 透明な部分は深度も書き込まないように描画を中止する
+    if (textureColor.a <= gMaterial.alphaCutoff)
+    {
+        discard;
+    }
+
     if (gMaterial.enableLighting != 0)
     {
         // 法線とライト方向の内積を求める
@@ -42,17 +49,24 @@ PixelShaderOutput main(VertexShaderOutput input)
         // Half Lambert。裏側も少し明るく見えるように[-1,1]を[0,1]へ変換する
         float halfLambert = pow(NdotL * 0.5f + 0.5f, 2.0f);
 
-        output.color =
-            gMaterial.color *
-            textureColor *
-            gDirectionalLight.color *
+        output.color.rgb =
+            gMaterial.color.rgb *
+            textureColor.rgb *
+            gDirectionalLight.color.rgb *
             halfLambert *
             gDirectionalLight.intensity;
     }
     else
     {
         // Lightingしない場合は、今まで通りTextureとMaterialColorだけを使う
-        output.color = gMaterial.color * textureColor;
+        output.color.rgb = gMaterial.color.rgb * textureColor.rgb;
+    }
+
+    // 透明度はライトの強さに影響されないように別に計算する
+    output.color.a = gMaterial.color.a * textureColor.a;
+    if (output.color.a <= 0.0f)
+    {
+        discard;
     }
 
     return output;

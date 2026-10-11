@@ -6,8 +6,10 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <array>
 #include <string>
 
+#include "Graphics/BlendMode.h"
 #include "Math/MathUtil.h"
 #include "Model/ModelData.h"
 #include "Renderer/IRenderable.h"
@@ -31,11 +33,22 @@ public:
 	void DrawDebugGui();
 	void Draw(ID3D12GraphicsCommandList* commandList) override;
 
+	Transform& GetTransform();
+	const Transform& GetTransform() const;
+	void SetBlendMode(BlendMode blendMode);
+	BlendMode GetBlendMode() const;
+	void SetColor(const Vector4& color);
+	void SetMaterialColor(const Vector4& color);
+	void SetAlphaCutoff(float alphaCutoff);
+	void SetLightingEnabled(bool enabled);
+	void SetUVTransform(const Matrix4x4& uvTransform);
+
 private:
 	struct Material {
 		Vector4 color;
 		int32_t enableLighting;
-		float padding[3];
+		float alphaCutoff;
+		float padding[2];
 		Matrix4x4 uvTransform;
 	};
 
@@ -75,7 +88,8 @@ private:
 	Microsoft::WRL::ComPtr<ID3D12Device> device_;
 
 	Microsoft::WRL::ComPtr<ID3D12RootSignature> rootSignature_;
-	Microsoft::WRL::ComPtr<ID3D12PipelineState> graphicsPipelineState_;
+	std::array<Microsoft::WRL::ComPtr<ID3D12PipelineState>, static_cast<size_t>(BlendMode::Count)> graphicsPipelineStates_;
+	BlendMode blendMode_ = BlendMode::None;
 
 	Microsoft::WRL::ComPtr<ID3D12Resource> vertexResource_;
 	D3D12_VERTEX_BUFFER_VIEW vertexBufferView_ = {};
