@@ -1,6 +1,4 @@
-#include <Windows.h>
-
-#include <cassert>
+#include <memory>
 
 #include "WinApp/WinApp.h"
 #include "DebugTools/Logger/Logger.h"
@@ -10,16 +8,7 @@
 #include "Audio/Audio.h"
 #include "Input/Input.h"
 
-#pragma comment(lib, "ole32.lib")
-
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int showCmd) {
-	HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-	assert(SUCCEEDED(hr));
-
-	if (FAILED(hr)) {
-		return -1;
-	}
-
+int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int showCmd) {
 	using namespace Homura;
 
 	InitializeCrashHandler();
@@ -31,18 +20,20 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int showCmd) {
 		// DirectX関連のComPtrが解放された後にリークチェックを走らせるため、先に作って最後に破棄させる
 		D3DResourceLeakChecker leakChecker;
 
-		WinApp winApp;
-		FrameRenderer frameRenderer;
+		// ウィンドウは入力や描画から借りて使い、最後に解放する
+		auto winApp = std::make_unique<WinApp>();
+		auto frameRenderer = std::make_unique<FrameRenderer>();
 		Audio audio;
-		Input input;
+		// 入力クラスを動的に生成し、スコープ終了時に解放する
+		auto input = std::make_unique<Input>();
 
-		if (!winApp.Initialize(showCmd)) {
+		if (!winApp->Initialize(showCmd)) {
 			result = -1;
-		} else if (!frameRenderer.Initialize(winApp.GetHwnd())) {
+		} else if (!frameRenderer->Initialize(winApp.get())) {
 			result = -1;
 		} else if (!audio.Initialize()) {
 			result = -1;
-		} else if (!input.Initialize(hInstance, winApp.GetHwnd())) {
+		} else if (!input->Initialize(winApp.get())) {
 			result = -1;
 		} else {
 			// 再生テスト用のwavファイルを読み込んで、アプリ起動時に一度だけ鳴らす
@@ -52,43 +43,45 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int showCmd) {
 				result = -1;
 			} else {
 				while (true) {
-					if (winApp.ProcessMessage()) {
+					if (winApp->ProcessMessage()) {
 						break;
 					}
 
 					// キーボード入力を毎フレーム更新する
-					input.Update();
+					input->Update();
 
 					// 入力確認用。0キーを押した瞬間だけ出力する
-					if (input.IsTriggerKey(DIK_0)) {
+					if (input->IsTriggerKey(DIK_0)) {
 						OutputDebugStringA("Ohhhhhhhhh\n");
 					}
 
 					// デバッグ用にEscapeキーでアプリを終了できるようにする
-					if (input.IsTriggerKey(DIK_ESCAPE)) {
+					if (input->IsTriggerKey(DIK_ESCAPE)) {
 						break;
 					}
 
 					// 入力をもとにデバッグカメラなどの更新を行う
-					frameRenderer.Update(input);
+					frameRenderer->Update(*input);
 
 					// 再生が終わったSourceVoiceを毎フレーム片付ける
 					audio.Update();
 
 					// 毎フレームBackBufferを指定色でクリアして画面に表示する
-					frameRenderer.Draw();
+					if (!frameRenderer->Draw()) {
+						result = -1;
+						break;
+					}
 				}
 			}
 		}
 
-		input.Finalize();
+		input->Finalize();
 		audio.Finalize();
-		frameRenderer.Finalize();
-		winApp.Finalize();
+		frameRenderer->Finalize();
+		winApp->Finalize();
 	}
 
 	FinalizeLogger();
-	CoUninitialize();
 
 	return result;
 }

@@ -10,17 +10,17 @@
 #include "DebugTools/Logger/Logger.h"
 #include "Input/Input.h"
 #include "Model/ModelLoader.h"
-#include "WinApp/WinConfig.h"
+#include "WinApp/WinApp.h"
 
 namespace Homura {
 
-bool FrameRenderer::Initialize(HWND hwnd) {
-	if (!d3d12Context_.Initialize(hwnd)) {
+bool FrameRenderer::Initialize(WinApp* winApp) {
+	if (!d3d12Context_.Initialize(winApp)) {
 		return false;
 	}
 
 	const float aspectRatio =
-		float(WinConfig::kClientWidth) / float(WinConfig::kClientHeight);
+		float(WinApp::kClientWidth) / float(WinApp::kClientHeight);
 	defaultCamera_.Initialize(aspectRatio);
 	debugCamera_.Initialize(aspectRatio);
 
@@ -28,7 +28,7 @@ bool FrameRenderer::Initialize(HWND hwnd) {
 		return false;
 	}
 
-	if (!CreateDebugGui(hwnd)) {
+	if (!CreateDebugGui(winApp->GetHwnd())) {
 		return false;
 	}
 
@@ -36,6 +36,8 @@ bool FrameRenderer::Initialize(HWND hwnd) {
 }
 
 void FrameRenderer::Finalize() {
+	// 描画用Resourceを解放する前にGPUの処理完了を待つ
+	d3d12Context_.WaitForGpu();
 	modelIntermediateResource_.Reset();
 	debugGui_.Finalize();
 	object3dRenderer_.Finalize();
@@ -52,9 +54,9 @@ void FrameRenderer::Update(const Input& input) {
 	}
 }
 
-void FrameRenderer::Draw() {
+bool FrameRenderer::Draw() {
 	if (!d3d12Context_.BeginFrame()) {
-		return;
+		return false;
 	}
 
 	debugGui_.BeginFrame();
@@ -68,7 +70,7 @@ void FrameRenderer::Draw() {
 	object3dRenderer_.Draw(d3d12Context_.GetCommandList().Get());
 	debugGui_.Render(d3d12Context_.GetCommandList().Get());
 
-	d3d12Context_.EndFrame();
+	return d3d12Context_.EndFrame();
 }
 
 bool FrameRenderer::CreateObject3dRenderer() {
