@@ -23,6 +23,31 @@ enum class ShadingModel {
 	BlinnPhong
 };
 
+struct PointLight {
+	Vector4 color = { 1.0f, 1.0f, 1.0f, 1.0f };
+	Vector3 position = { 0.0f, 2.0f, 0.0f };
+	float intensity = 1.0f;
+	float radius = 10.0f;
+	float decay = 1.0f;
+	float padding[2]{};
+};
+
+static_assert(sizeof(PointLight) == 48);
+
+struct SpotLight {
+	Vector4 color = { 1.0f, 1.0f, 1.0f, 1.0f };
+	Vector3 position = { 2.0f, 1.25f, 0.0f };
+	float intensity = 4.0f;
+	Vector3 direction = { -0.70710678f, -0.70710678f, 0.0f };
+	float distance = 7.0f;
+	float decay = 2.0f;
+	float cosAngle = 0.5f;
+	float cosFalloffStart = 0.8660254f;
+	float padding = 0.0f;
+};
+
+static_assert(sizeof(SpotLight) == 64);
+
 class Object3dRenderer : public IRenderable {
 public:
 	bool Initialize(
@@ -52,6 +77,10 @@ public:
 	ShadingModel GetShadingModel() const;
 	void SetShininess(float shininess);
 	void SetDirectionalLight(const Vector4& color, const Vector3& direction, float intensity);
+	void SetPointLight(const PointLight& light);
+	PointLight GetPointLight() const;
+	void SetSpotLight(const SpotLight& light);
+	SpotLight GetSpotLight() const;
 
 private:
 	struct Material {
@@ -101,6 +130,8 @@ private:
 	bool CreateTransformationMatrixResource();
 	bool CreateDirectionalLightResource();
 	bool CreateCameraResource();
+	bool CreatePointLightResource();
+	bool CreateSpotLightResource();
 
 private:
 	Microsoft::WRL::ComPtr<ID3D12Device> device_;
@@ -122,6 +153,10 @@ private:
 	DirectionalLight* directionalLightData_ = nullptr;
 	Microsoft::WRL::ComPtr<ID3D12Resource> cameraResource_;
 	CameraData* cameraData_ = nullptr;
+	Microsoft::WRL::ComPtr<ID3D12Resource> pointLightResource_;
+	PointLight* pointLightData_ = nullptr;
+	Microsoft::WRL::ComPtr<ID3D12Resource> spotLightResource_;
+	SpotLight* spotLightData_ = nullptr;
 
 	TextureManager textureManagerModel_;
 	ModelData modelData_;

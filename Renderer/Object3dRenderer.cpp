@@ -74,6 +74,12 @@ bool Object3dRenderer::Initialize(
 	if (!CreateCameraResource()) {
 		return false;
 	}
+	if (!CreatePointLightResource()) {
+		return false;
+	}
+	if (!CreateSpotLightResource()) {
+		return false;
+	}
 
 	return true;
 }
@@ -84,11 +90,15 @@ void Object3dRenderer::Finalize() {
 	// Mapしている先頭アドレスはResource本体をComPtrに任せ、こちらでは参照だけ外しておく
 	directionalLightData_ = nullptr;
 	cameraData_ = nullptr;
+	pointLightData_ = nullptr;
+	spotLightData_ = nullptr;
 	transformationMatrixData_ = nullptr;
 	materialData_ = nullptr;
 
 	directionalLightResource_.Reset();
 	cameraResource_.Reset();
+	pointLightResource_.Reset();
+	spotLightResource_.Reset();
 	transformationMatrixResource_.Reset();
 	materialResource_.Reset();
 	vertexResource_.Reset();
@@ -134,6 +144,29 @@ void Object3dRenderer::DrawDebugGui() {
 		// ライト方向は単位ベクトルである必要があるので正規化する
 		SetDirectionalLight(directionalLightData_->color, directionalLightData_->direction, directionalLightData_->intensity);
 	}
+	if (pointLightData_ != nullptr && ImGui::TreeNode("PointLight")) {
+		PointLight light = GetPointLight();
+		ImGui::ColorEdit4("PointColor", &light.color.x);
+		ImGui::DragFloat3("PointPosition", &light.position.x, 0.01f);
+		ImGui::DragFloat("PointIntensity", &light.intensity, 0.01f, 0.0f, 10.0f);
+		ImGui::DragFloat("PointRadius", &light.radius, 0.01f, 0.001f, 100.0f);
+		ImGui::DragFloat("PointDecay", &light.decay, 0.01f, 0.001f, 10.0f);
+		SetPointLight(light);
+		ImGui::TreePop();
+	}
+	if (spotLightData_ != nullptr && ImGui::TreeNode("SpotLight")) {
+		SpotLight light = GetSpotLight();
+		ImGui::ColorEdit4("SpotColor", &light.color.x);
+		ImGui::DragFloat3("SpotPosition", &light.position.x, 0.01f);
+		ImGui::DragFloat3("SpotDirection", &light.direction.x, 0.01f);
+		ImGui::DragFloat("SpotIntensity", &light.intensity, 0.01f, 0.0f, 10.0f);
+		ImGui::DragFloat("SpotDistance", &light.distance, 0.01f, 0.001f, 100.0f);
+		ImGui::DragFloat("SpotDecay", &light.decay, 0.01f, 0.001f, 10.0f);
+		ImGui::SliderFloat("CosAngle", &light.cosAngle, -1.0f, 0.999f);
+		ImGui::SliderFloat("CosFalloffStart", &light.cosFalloffStart, -1.0f, 1.0f);
+		SetSpotLight(light);
+		ImGui::TreePop();
+	}
 	ImGui::PopID();
 #endif
 }
@@ -167,6 +200,8 @@ void Object3dRenderer::Draw(ID3D12GraphicsCommandList* commandList) {
 	// PixelShaderで使う平行光源Bufferの場所を設定する
 	commandList->SetGraphicsRootConstantBufferView(3, directionalLightResource_->GetGPUVirtualAddress());
 	commandList->SetGraphicsRootConstantBufferView(4, cameraResource_->GetGPUVirtualAddress());
+	commandList->SetGraphicsRootConstantBufferView(5, pointLightResource_->GetGPUVirtualAddress());
+	commandList->SetGraphicsRootConstantBufferView(6, spotLightResource_->GetGPUVirtualAddress());
 
 	// OBJのFaceから展開した頂点数で描画命令を積む
 	commandList->DrawInstanced(static_cast<UINT>(modelData_.vertices.size()), 1, 0, 0);
@@ -240,6 +275,37 @@ void Object3dRenderer::SetDirectionalLight(const Vector4& color, const Vector3& 
 		directionalLightData_->direction = Length(direction) > 0.0f ? Normalize(direction) : Vector3{ 0.0f, -1.0f, 0.0f };
 		directionalLightData_->intensity = (std::max)(intensity, 0.0f);
 	}
+}
+
+void Object3dRenderer::SetPointLight(const PointLight& light) {
+	if (pointLightData_ != nullptr) {
+		*pointLightData_ = light;
+		pointLightData_->intensity = (std::max)(light.intensity, 0.0f);
+		pointLightData_->radius = (std::max)(light.radius, 0.001f);
+		pointLightData_->decay = (std::max)(light.decay, 0.001f);
+	}
+}
+
+PointLight Object3dRenderer::GetPointLight() const {
+	return pointLightData_ != nullptr ? *pointLightData_ : PointLight{};
+}
+
+void Object3dRenderer::SetSpotLight(const SpotLight& light) {
+	if (spotLightData_ != nullptr) {
+		*spotLightData_ = light;
+		spotLightData_->intensity = (std::max)(light.intensity, 0.0f);
+		spotLightData_->direction = Length(light.direction) > 0.0f ? Normalize(light.direction) : Vector3{ 0.0f, -1.0f, 0.0f };
+		spotLightData_->distance = (std::max)(light.distance, 0.001f);
+		spotLightData_->decay = (std::max)(light.decay, 0.001f);
+
+		// 内側と外側の角度が重ならないように、減衰範囲を確保する
+		spotLightData_->cosAngle = std::clamp(light.cosAngle, -1.0f, 0.999f);
+		spotLightData_->cosFalloffStart = std::clamp(light.cosFalloffStart, spotLightData_->cosAngle + 0.001f, 1.0f);
+	}
+}
+
+SpotLight Object3dRenderer::GetSpotLight() const {
+	return spotLightData_ != nullptr ? *spotLightData_ : SpotLight{};
 }
 
 bool Object3dRenderer::CreateTexture(
@@ -417,7 +483,7 @@ bool Object3dRenderer::CreateGraphicsPipelineState() {
 		D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
 	// RootParameter作成。PixelShaderのMaterial、VertexShaderのTransform、PixelShaderのTexture
-	D3D12_ROOT_PARAMETER rootParameters[5] = {};
+	D3D12_ROOT_PARAMETER rootParameters[7] = {};
 
 	rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
 	rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
@@ -438,6 +504,12 @@ bool Object3dRenderer::CreateGraphicsPipelineState() {
 	rootParameters[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
 	rootParameters[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 	rootParameters[4].Descriptor.ShaderRegister = 2;
+	rootParameters[5].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	rootParameters[5].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	rootParameters[5].Descriptor.ShaderRegister = 3;
+	rootParameters[6].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	rootParameters[6].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	rootParameters[6].Descriptor.ShaderRegister = 4;
 
 	descriptionRootSignature.pParameters = rootParameters;
 	descriptionRootSignature.NumParameters = _countof(rootParameters);
@@ -730,6 +802,36 @@ bool Object3dRenderer::CreateDirectionalLightResource() {
 
 	Log("Complete create DirectionalLightResource!!!\n");
 
+	return true;
+}
+
+bool Object3dRenderer::CreatePointLightResource() {
+	// 点光源の位置と距離減衰をShaderへ渡す
+	pointLightResource_ = CreateBufferResource(sizeof(PointLight));
+	if (pointLightResource_ == nullptr) {
+		return false;
+	}
+	HRESULT hr = pointLightResource_->Map(0, nullptr, reinterpret_cast<void**>(&pointLightData_));
+	assert(SUCCEEDED(hr));
+	if (FAILED(hr)) {
+		return false;
+	}
+	*pointLightData_ = PointLight{};
+	return true;
+}
+
+bool Object3dRenderer::CreateSpotLightResource() {
+	// スポットライトの位置・向き・照射範囲をShaderへ渡す
+	spotLightResource_ = CreateBufferResource(sizeof(SpotLight));
+	if (spotLightResource_ == nullptr) {
+		return false;
+	}
+	HRESULT hr = spotLightResource_->Map(0, nullptr, reinterpret_cast<void**>(&spotLightData_));
+	assert(SUCCEEDED(hr));
+	if (FAILED(hr)) {
+		return false;
+	}
+	SetSpotLight(SpotLight{});
 	return true;
 }
 
