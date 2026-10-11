@@ -30,6 +30,7 @@ public:
 private:
 	bool isComInitialized_ = false;
 	bool isClassRegistered_ = false;
+	bool isTimerResolutionSet_ = false;
 	WNDCLASS wc_{};
 	HWND hwnd_ = nullptr;
 };

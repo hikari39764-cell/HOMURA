@@ -3,6 +3,7 @@
 #include <cassert>
 #include <format>
 #include <limits>
+#include <thread>
 #include <d3d12sdklayers.h>
 
 #pragma comment(lib, "d3d12.lib")
@@ -103,6 +104,7 @@ bool D3D12Context::Initialize(WinApp* winApp) {
 
 	// 画面全体に描画するためのViewportとScissorを設定する
 	CreateViewportAndScissor();
+	InitializeFixFPS();
 
 	initialized_ = true;
 	return true;
@@ -205,6 +207,7 @@ void D3D12Context::Finalize() {
 	fenceValue_ = 0;
 	viewport_ = {};
 	scissorRect_ = {};
+	reference_ = {};
 	initialized_ = false;
 	winApp_ = nullptr;
 }
@@ -333,7 +336,12 @@ bool D3D12Context::EndFrame() {
 	}
 
 	// 次のフレームでResourceを使い直す前にGPUの完了を待つ
-	return WaitForGpu();
+	if (!WaitForGpu()) {
+		return false;
+	}
+
+	UpdateFixFPS();
+	return true;
 }
 
 void D3D12Context::SetShaderVisibleDescriptorHeap() {
@@ -816,6 +824,31 @@ void D3D12Context::CreateViewportAndScissor() {
 	scissorRect_.bottom = WinApp::kClientHeight;
 
 	Log("Complete create Viewport and Scissor!!!\n");
+}
+
+void D3D12Context::InitializeFixFPS() {
+	// FPS固定用の基準時刻を設定する
+	reference_ = std::chrono::steady_clock::now();
+}
+
+void D3D12Context::UpdateFixFPS() {
+	constexpr std::chrono::microseconds kMinTime(1000000 / 60);
+	constexpr std::chrono::microseconds kCheckTime(1000000 / 65);
+
+	// 前のフレームからの経過時間を取得する
+	const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+		std::chrono::steady_clock::now() - reference_
+	);
+
+	// 65FPSより速い時だけ、1フレームが60FPSの時間になるまで待つ
+	if (elapsed < kCheckTime) {
+		while (std::chrono::steady_clock::now() - reference_ < kMinTime) {
+			std::this_thread::sleep_for(std::chrono::microseconds(1));
+		}
+	}
+
+	// 次のフレームの基準時刻を更新する
+	reference_ = std::chrono::steady_clock::now();
 }
 
 bool D3D12Context::WaitForGpu() {

@@ -5,6 +5,8 @@
 #include <dxgi1_6.h>
 #include <wrl.h>
 
+#include <chrono>
+
 namespace Homura {
 
 class WinApp;
@@ -72,6 +74,8 @@ private:
 		UINT index
 	);
 	void CreateViewportAndScissor();
+	void InitializeFixFPS();
+	void UpdateFixFPS();
 
 private:
 	static constexpr UINT kBackBufferCount = 2;
@@ -111,6 +115,7 @@ private:
 
 	D3D12_VIEWPORT viewport_ = {};
 	D3D12_RECT scissorRect_ = {};
+	std::chrono::steady_clock::time_point reference_{};
 };
 
 } // namespace Homura

@@ -1,7 +1,9 @@
 #include "WinApp.h"
 #include <objbase.h>
+#include <mmsystem.h>
 
 #pragma comment(lib, "ole32.lib")
+#pragma comment(lib, "winmm.lib")
 
 #ifdef USE_IMGUI
 #include "externals/imgui/imgui_impl_win32.h"
@@ -113,10 +115,19 @@ bool WinApp::Initialize(int nCmdShow) {
 	ShowWindow(hwnd_, nCmdShow);
 	UpdateWindow(hwnd_);
 
+	// タイマーの精度を1ミリ秒に設定
+	isTimerResolutionSet_ = timeBeginPeriod(1) == TIMERR_NOERROR;
+
 	return true;
 }
 
 void WinApp::Finalize() {
+	// タイマーの精度を元に戻す
+	if (isTimerResolutionSet_) {
+		timeEndPeriod(1);
+		isTimerResolutionSet_ = false;
+	}
+
 	if (hwnd_ != nullptr) {
 		if (IsWindow(hwnd_)) {
 			DestroyWindow(hwnd_);
