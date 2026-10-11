@@ -49,6 +49,7 @@ Matrix4x4 MakeOrthographicMatrix(
 	float farClip
 );
 Matrix4x4 Inverse(const Matrix4x4& matrix);
+Matrix4x4 Transpose(const Matrix4x4& matrix);
 
 float Length(const Vector3& vector);
 Vector3 Normalize(const Vector3& vector);

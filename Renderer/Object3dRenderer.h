@@ -17,6 +17,12 @@
 
 namespace Homura {
 
+enum class ShadingModel {
+	HalfLambert,
+	Phong,
+	BlinnPhong
+};
+
 class Object3dRenderer : public IRenderable {
 public:
 	bool Initialize(
@@ -42,19 +48,30 @@ public:
 	void SetAlphaCutoff(float alphaCutoff);
 	void SetLightingEnabled(bool enabled);
 	void SetUVTransform(const Matrix4x4& uvTransform);
+	void SetShadingModel(ShadingModel shadingModel);
+	ShadingModel GetShadingModel() const;
+	void SetShininess(float shininess);
+	void SetDirectionalLight(const Vector4& color, const Vector3& direction, float intensity);
 
 private:
 	struct Material {
 		Vector4 color;
 		int32_t enableLighting;
 		float alphaCutoff;
-		float padding[2];
+		float shininess;
+		int32_t shadingModel;
 		Matrix4x4 uvTransform;
 	};
 
 	struct TransformationMatrix {
 		Matrix4x4 WVP;
 		Matrix4x4 World;
+		Matrix4x4 WorldInverseTranspose;
+	};
+
+	struct CameraData {
+		Vector3 worldPosition;
+		float padding;
 	};
 
 	struct DirectionalLight {
@@ -83,6 +100,7 @@ private:
 	bool CreateMaterialResource();
 	bool CreateTransformationMatrixResource();
 	bool CreateDirectionalLightResource();
+	bool CreateCameraResource();
 
 private:
 	Microsoft::WRL::ComPtr<ID3D12Device> device_;
@@ -102,6 +120,8 @@ private:
 
 	Microsoft::WRL::ComPtr<ID3D12Resource> directionalLightResource_;
 	DirectionalLight* directionalLightData_ = nullptr;
+	Microsoft::WRL::ComPtr<ID3D12Resource> cameraResource_;
+	CameraData* cameraData_ = nullptr;
 
 	TextureManager textureManagerModel_;
 	ModelData modelData_;

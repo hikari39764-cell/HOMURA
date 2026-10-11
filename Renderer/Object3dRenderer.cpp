@@ -3,6 +3,7 @@
 #include <cassert>
 #include <algorithm>
 #include <cstring>
+#include <cmath>
 #include <format>
 #include <dxcapi.h>
 
@@ -70,6 +71,9 @@ bool Object3dRenderer::Initialize(
 	if (!CreateDirectionalLightResource()) {
 		return false;
 	}
+	if (!CreateCameraResource()) {
+		return false;
+	}
 
 	return true;
 }
@@ -79,10 +83,12 @@ void Object3dRenderer::Finalize() {
 
 	// Mapしている先頭アドレスはResource本体をComPtrに任せ、こちらでは参照だけ外しておく
 	directionalLightData_ = nullptr;
+	cameraData_ = nullptr;
 	transformationMatrixData_ = nullptr;
 	materialData_ = nullptr;
 
 	directionalLightResource_.Reset();
+	cameraResource_.Reset();
 	transformationMatrixResource_.Reset();
 	materialResource_.Reset();
 	vertexResource_.Reset();
@@ -107,6 +113,12 @@ void Object3dRenderer::DrawDebugGui() {
 	if (materialData_ != nullptr) {
 		ImGui::ColorEdit4("color", &materialData_->color.x);
 		ImGui::SliderFloat("AlphaCutoff", &materialData_->alphaCutoff, 0.0f, 1.0f);
+		const char* shadingModels[] = { "Half Lambert", "Phong", "Blinn Phong" };
+		int shadingModel = materialData_->shadingModel;
+		if (ImGui::Combo("ShadingModel", &shadingModel, shadingModels, _countof(shadingModels))) {
+			SetShadingModel(static_cast<ShadingModel>(shadingModel));
+		}
+		ImGui::SliderFloat("Shininess", &materialData_->shininess, 1.0f, 256.0f);
 
 		bool enableLighting = materialData_->enableLighting != 0;
 		if (ImGui::Checkbox("enableLighting", &enableLighting)) {
@@ -117,10 +129,10 @@ void Object3dRenderer::DrawDebugGui() {
 	if (directionalLightData_ != nullptr) {
 		ImGui::ColorEdit4("LightColor", &directionalLightData_->color.x);
 		ImGui::DragFloat3("LightDirection", &directionalLightData_->direction.x, 0.01f);
-		ImGui::DragFloat("Intensity", &directionalLightData_->intensity, 0.01f);
+		ImGui::DragFloat("Intensity", &directionalLightData_->intensity, 0.01f, 0.0f, 10.0f);
 
 		// ライト方向は単位ベクトルである必要があるので正規化する
-		directionalLightData_->direction = Normalize(directionalLightData_->direction);
+		SetDirectionalLight(directionalLightData_->color, directionalLightData_->direction, directionalLightData_->intensity);
 	}
 	ImGui::PopID();
 #endif
@@ -154,6 +166,7 @@ void Object3dRenderer::Draw(ID3D12GraphicsCommandList* commandList) {
 
 	// PixelShaderで使う平行光源Bufferの場所を設定する
 	commandList->SetGraphicsRootConstantBufferView(3, directionalLightResource_->GetGPUVirtualAddress());
+	commandList->SetGraphicsRootConstantBufferView(4, cameraResource_->GetGPUVirtualAddress());
 
 	// OBJのFaceから展開した頂点数で描画命令を積む
 	commandList->DrawInstanced(static_cast<UINT>(modelData_.vertices.size()), 1, 0, 0);
@@ -202,6 +215,30 @@ void Object3dRenderer::SetLightingEnabled(bool enabled) {
 void Object3dRenderer::SetUVTransform(const Matrix4x4& uvTransform) {
 	if (materialData_ != nullptr) {
 		materialData_->uvTransform = uvTransform;
+	}
+}
+
+void Object3dRenderer::SetShadingModel(ShadingModel shadingModel) {
+	if (materialData_ != nullptr && shadingModel >= ShadingModel::HalfLambert && shadingModel <= ShadingModel::BlinnPhong) {
+		materialData_->shadingModel = static_cast<int32_t>(shadingModel);
+	}
+}
+
+ShadingModel Object3dRenderer::GetShadingModel() const {
+	return materialData_ != nullptr ? static_cast<ShadingModel>(materialData_->shadingModel) : ShadingModel::HalfLambert;
+}
+
+void Object3dRenderer::SetShininess(float shininess) {
+	if (materialData_ != nullptr) {
+		materialData_->shininess = std::clamp(shininess, 1.0f, 1024.0f);
+	}
+}
+
+void Object3dRenderer::SetDirectionalLight(const Vector4& color, const Vector3& direction, float intensity) {
+	if (directionalLightData_ != nullptr) {
+		directionalLightData_->color = color;
+		directionalLightData_->direction = Length(direction) > 0.0f ? Normalize(direction) : Vector3{ 0.0f, -1.0f, 0.0f };
+		directionalLightData_->intensity = (std::max)(intensity, 0.0f);
 	}
 }
 
@@ -380,7 +417,7 @@ bool Object3dRenderer::CreateGraphicsPipelineState() {
 		D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
 	// RootParameter作成。PixelShaderのMaterial、VertexShaderのTransform、PixelShaderのTexture
-	D3D12_ROOT_PARAMETER rootParameters[4] = {};
+	D3D12_ROOT_PARAMETER rootParameters[5] = {};
 
 	rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
 	rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
@@ -398,6 +435,9 @@ bool Object3dRenderer::CreateGraphicsPipelineState() {
 	rootParameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
 	rootParameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 	rootParameters[3].Descriptor.ShaderRegister = 1;
+	rootParameters[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	rootParameters[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	rootParameters[4].Descriptor.ShaderRegister = 2;
 
 	descriptionRootSignature.pParameters = rootParameters;
 	descriptionRootSignature.NumParameters = _countof(rootParameters);
@@ -648,8 +688,8 @@ bool Object3dRenderer::CreateMaterialResource() {
 	// ModelはLightingする
 	materialData_->enableLighting = true;
 	materialData_->alphaCutoff = 0.5f;
-	materialData_->padding[0] = 0.0f;
-	materialData_->padding[1] = 0.0f;
+	materialData_->shininess = 40.0f;
+	materialData_->shadingModel = static_cast<int32_t>(ShadingModel::HalfLambert);
 
 	// 最初は単位行列を設定する
 	materialData_->uvTransform = MakeIdentity4x4();
@@ -693,6 +733,22 @@ bool Object3dRenderer::CreateDirectionalLightResource() {
 	return true;
 }
 
+bool Object3dRenderer::CreateCameraResource() {
+	// 鏡面反射の視線方向を求めるためにカメラ位置を用意する
+	cameraResource_ = CreateBufferResource(sizeof(CameraData));
+	if (cameraResource_ == nullptr) {
+		return false;
+	}
+
+	HRESULT hr = cameraResource_->Map(0, nullptr, reinterpret_cast<void**>(&cameraData_));
+	assert(SUCCEEDED(hr));
+	if (FAILED(hr)) {
+		return false;
+	}
+	*cameraData_ = {};
+	return true;
+}
+
 bool Object3dRenderer::CreateTransformationMatrixResource() {
 	// 座標変換用のResourceを作成する
 	transformationMatrixResource_ = CreateBufferResource(sizeof(TransformationMatrix));
@@ -720,6 +776,7 @@ bool Object3dRenderer::CreateTransformationMatrixResource() {
 	// 最初は単位行列を設定する
 	transformationMatrixData_->WVP = MakeIdentity4x4();
 	transformationMatrixData_->World = MakeIdentity4x4();
+	transformationMatrixData_->WorldInverseTranspose = MakeIdentity4x4();
 
 	Log("Complete create TransformationMatrixResource!!!\n");
 
@@ -727,13 +784,24 @@ bool Object3dRenderer::CreateTransformationMatrixResource() {
 }
 
 void Object3dRenderer::UpdateTransformationMatrix(const ICamera& camera) {
-	if (transformationMatrixData_ == nullptr) {
+	if (transformationMatrixData_ == nullptr || cameraData_ == nullptr) {
 		return;
 	}
 
+	// Scaleが0でも逆行列を作れるように、ごく小さい値で下限を設ける
+	auto avoidZeroScale = [](float value) {
+		constexpr float kMinScale = 0.0001f;
+		return std::fabs(value) < kMinScale ? std::copysign(kMinScale, value) : value;
+	};
+	const Vector3 scale = {
+		avoidZeroScale(transform_.scale.x),
+		avoidZeroScale(transform_.scale.y),
+		avoidZeroScale(transform_.scale.z)
+	};
+
 	// オブジェクトのWorldMatrixを作成する
 	Matrix4x4 worldMatrix = MakeAffineMatrix(
-		transform_.scale,
+		scale,
 		transform_.rotate,
 		transform_.translate
 	);
@@ -747,6 +815,11 @@ void Object3dRenderer::UpdateTransformationMatrix(const ICamera& camera) {
 	// VertexShaderへ渡す行列を更新する
 	transformationMatrixData_->WVP = worldViewProjectionMatrix;
 	transformationMatrixData_->World = worldMatrix;
+	transformationMatrixData_->WorldInverseTranspose = Transpose(Inverse(worldMatrix));
+
+	// ViewMatrixの逆行列から、カメラのワールド座標を取得する
+	const Matrix4x4 cameraWorld = Inverse(camera.GetViewMatrix());
+	cameraData_->worldPosition = { cameraWorld.m[3][0], cameraWorld.m[3][1], cameraWorld.m[3][2] };
 }
 
 } // namespace Homura

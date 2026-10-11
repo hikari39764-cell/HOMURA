@@ -4,6 +4,7 @@ struct TransformationMatrix
 {
     float32_t4x4 WVP;
     float32_t4x4 World;
+    float32_t4x4 WorldInverseTranspose;
 };
 
 ConstantBuffer<TransformationMatrix> gTransformationMatrix : register(b0);
@@ -21,9 +22,10 @@ VertexShaderOutput main(VertexShaderInput input)
 
     output.position = mul(input.position, gTransformationMatrix.WVP);
     output.texcoord = input.texcoord;
+    output.worldPosition = mul(input.position, gTransformationMatrix.World).xyz;
 
-    // WorldMatrixの左上3x3だけを使ってLocalからWorldへ変換する
-    output.normal = normalize(mul(input.normal, (float32_t3x3) gTransformationMatrix.World));
+    // 非均一なScaleでも法線が面に垂直になるように逆転置行列を使う
+    output.normal = normalize(mul(input.normal, (float32_t3x3) gTransformationMatrix.WorldInverseTranspose));
 
     return output;
 }
