@@ -28,7 +28,7 @@ bool DebugGui::Initialize(
 		return false;
 	}
 
-	// ImGuiの初期化。開発用UIなのでReleaseでは呼ばれない
+	// 全ての構成で課題の描画設定を操作できるようにImGuiを初期化する
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
 	ImGui::StyleColorsDark();

@@ -907,6 +907,8 @@ void Object3dRenderer::UpdateTransformationMatrix(const ICamera& camera) {
 		transform_.rotate,
 		transform_.translate
 	);
+	// モデルの根ノードを、オブジェクトの座標変換より先に一度だけ適用する
+	worldMatrix = Multiply(modelData_.rootNode.localMatrix, worldMatrix);
 
 	// World、View、Projectionをまとめる
 	Matrix4x4 worldViewProjectionMatrix = Multiply(

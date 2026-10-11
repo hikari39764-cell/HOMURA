@@ -127,6 +127,11 @@ DirectX::ScratchImage TextureManager::LoadTexture(const std::string& filePath) {
 		return {};
 	}
 
+	// 1pxのTextureはこれ以上縮小できないので、そのまま使う
+	if (image.GetMetadata().width == 1 && image.GetMetadata().height == 1) {
+		return image;
+	}
+
 	// mipmapを作成する
 	DirectX::ScratchImage mipImages{};
 	hr = DirectX::GenerateMipMaps(

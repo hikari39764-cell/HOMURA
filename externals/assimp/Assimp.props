@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <HomuraAssimpRoot>$(MSBuildThisFileDirectory)</HomuraAssimpRoot>
+    <HomuraAssimpConfiguration Condition="'$(Configuration)'=='Debug'">Debug</HomuraAssimpConfiguration>
+    <HomuraAssimpConfiguration Condition="'$(Configuration)'!='Debug'">Release</HomuraAssimpConfiguration>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(HomuraAssimpRoot)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <AdditionalLibraryDirectories>$(HomuraAssimpRoot)lib\$(HomuraAssimpConfiguration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>assimp.lib;zlibstatic.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <!-- 初回だけ固定バージョンの依存ライブラリを復元する -->
+  <Target Name="RestoreHomuraAssimp" BeforeTargets="PrepareForBuild" Condition="'$(DesignTimeBuild)'!='true'">
+    <Exec Command="&quot;$(SystemRoot)\System32\WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -ExecutionPolicy Bypass -File &quot;$(HomuraAssimpRoot)restore.ps1&quot; -Configuration $(HomuraAssimpConfiguration)" />
+  </Target>
+</Project>

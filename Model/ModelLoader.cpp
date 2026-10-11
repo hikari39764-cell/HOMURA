@@ -1,175 +1,198 @@
 #include "ModelLoader.h"
 
-#include <cassert>
-#include <cstdint>
+#include <algorithm>
+#include <cmath>
+#include <filesystem>
+#include <format>
 #include <fstream>
 #include <sstream>
-#include <string>
-#include <vector>
+
+#include <assimp/Importer.hpp>
+#include <assimp/postprocess.h>
+#include <assimp/scene.h>
+
+#include "DebugTools/Logger/Logger.h"
 
 namespace Homura {
 
 namespace {
 
 	std::string JoinPath(const std::string& directoryPath, const std::string& filename) {
-		if (directoryPath.empty()) {
-			return filename;
-		}
-
-		const char last = directoryPath.back();
-		if (last == '/' || last == '\\') {
-			return directoryPath + filename;
-		}
-
-		return directoryPath + "/" + filename;
+		std::string relativePath = filename;
+		std::replace(relativePath.begin(), relativePath.end(), '\\', '/');
+		return (std::filesystem::path(directoryPath) / relativePath).lexically_normal().generic_string();
 	}
 
-	struct VertexIndexData {
-		uint32_t positionIndex = 0;
-		uint32_t texcoordIndex = 0;
-		uint32_t normalIndex = 0;
-	};
+	Matrix4x4 ConvertNodeMatrix(const aiMatrix4x4& matrix) {
+		Matrix4x4 result{};
+		constexpr float axisSigns[] = { -1.0f, 1.0f, 1.0f, 1.0f };
 
-	VertexIndexData ParseFaceVertex(const std::string& faceVertex) {
-		VertexIndexData indexData{};
-		std::istringstream faceVertexStream(faceVertex);
-		std::string indexString;
-
-		// position / texcoord / normal の順でIndexを読む
-		std::getline(faceVertexStream, indexString, '/');
-		assert(!indexString.empty());
-		indexData.positionIndex = static_cast<uint32_t>(std::stoul(indexString));
-
-		std::getline(faceVertexStream, indexString, '/');
-		assert(!indexString.empty());
-		indexData.texcoordIndex = static_cast<uint32_t>(std::stoul(indexString));
-
-		std::getline(faceVertexStream, indexString, '/');
-		assert(!indexString.empty());
-		indexData.normalIndex = static_cast<uint32_t>(std::stoul(indexString));
-
-		return indexData;
+		// X軸の向きを合わせてから、列ベクトル用の行列を転置する
+		for (unsigned int row = 0; row < 4; ++row) {
+			for (unsigned int column = 0; column < 4; ++column) {
+				result.m[row][column] = matrix[column][row] * axisSigns[row] * axisSigns[column];
+			}
+		}
+		return result;
 	}
 
-	VertexData MakeVertexData(
-		const VertexIndexData& indexData,
-		const std::vector<Vector4>& positions,
-		const std::vector<Vector2>& texcoords,
-		const std::vector<Vector3>& normals
-	) {
-		assert(indexData.positionIndex > 0 && indexData.positionIndex <= positions.size());
-		assert(indexData.texcoordIndex > 0 && indexData.texcoordIndex <= texcoords.size());
-		assert(indexData.normalIndex > 0 && indexData.normalIndex <= normals.size());
+	bool ReadMaterial(const aiScene* scene, const aiMesh* mesh, const std::string& directoryPath,
+		MaterialData& material) {
+		if (mesh->mMaterialIndex >= scene->mNumMaterials) {
+			Log("Failed to load model material: material index is out of range.\n");
+			return false;
+		}
 
-		VertexData vertex{};
-		vertex.position = positions[indexData.positionIndex - 1];
-		vertex.texcoord = texcoords[indexData.texcoordIndex - 1];
-		vertex.normal = normals[indexData.normalIndex - 1];
+		const aiMaterial* source = scene->mMaterials[mesh->mMaterialIndex];
+		aiString texturePath;
+		// glTFのBaseColorとOBJのDiffuseを同じTextureとして扱う
+		if (source->GetTexture(aiTextureType_BASE_COLOR, 0, &texturePath) != AI_SUCCESS &&
+			source->GetTexture(aiTextureType_DIFFUSE, 0, &texturePath) != AI_SUCCESS) {
+			Log("Failed to load model material: an external color texture is required.\n");
+			return false;
+		}
+		if (scene->GetEmbeddedTexture(texturePath.C_Str()) != nullptr) {
+			Log("Failed to load model material: save the color texture as an external image.\n");
+			return false;
+		}
 
-		// OBJの右手座標系から、DirectXで扱う左手座標系に変換する
-		vertex.position.x *= -1.0f;
-		vertex.normal.x *= -1.0f;
+		material.textureFilePath = JoinPath(directoryPath, texturePath.C_Str());
+		std::error_code error;
+		if (!std::filesystem::is_regular_file(material.textureFilePath, error)) {
+			Log(std::format("Failed to find model texture: {}\n", material.textureFilePath));
+			return false;
+		}
+		return true;
+	}
 
-		return vertex;
+	bool AppendNodeMeshes(const aiScene* scene, const aiNode* node, const aiMatrix4x4& parentMatrix,
+		float rootDeterminant, bool isRoot, const std::string& directoryPath, ModelData& modelData) {
+		// 根ノードは描画時に適用するので、ここでは子ノードだけを頂点へ反映する
+		const aiMatrix4x4 nodeMatrix = isRoot ? aiMatrix4x4() : parentMatrix * node->mTransformation;
+		aiMatrix3x3 normalMatrix(nodeMatrix);
+		const float determinant = normalMatrix.Determinant();
+		if (std::abs(determinant) < 1.0e-8f) {
+			Log("Failed to load model node: the scale is zero.\n");
+			return false;
+		}
+		normalMatrix.Inverse().Transpose();
+		const bool reverseWinding = determinant * rootDeterminant < 0.0f;
+
+		for (unsigned int meshIndex = 0; meshIndex < node->mNumMeshes; ++meshIndex) {
+			const aiMesh* mesh = scene->mMeshes[node->mMeshes[meshIndex]];
+			if (!mesh->HasNormals() || !mesh->HasTextureCoords(0)) {
+				Log("Failed to load model mesh: normals and texture coordinates are required.\n");
+				return false;
+			}
+
+			MaterialData material;
+			if (!ReadMaterial(scene, mesh, directoryPath, material)) {
+				return false;
+			}
+			if (modelData.material.textureFilePath.empty()) {
+				modelData.material = material;
+			} else if (modelData.material.textureFilePath != material.textureFilePath) {
+				// 現在の描画はTextureを1枚だけ使うので、別Textureを混ぜない
+				Log("Failed to load model mesh: multiple color textures are not supported.\n");
+				return false;
+			}
+
+			for (unsigned int faceIndex = 0; faceIndex < mesh->mNumFaces; ++faceIndex) {
+				const aiFace& face = mesh->mFaces[faceIndex];
+				if (face.mNumIndices != 3) {
+					Log("Failed to load model mesh: only triangles can be drawn.\n");
+					return false;
+				}
+
+				for (unsigned int corner = 0; corner < 3; ++corner) {
+					// 負のScaleを持つノードでも、表面の向きを保つ
+					const unsigned int vertexIndex = face.mIndices[reverseWinding ? 2 - corner : corner];
+					const aiVector3D position = nodeMatrix * mesh->mVertices[vertexIndex];
+					aiVector3D normal = normalMatrix * mesh->mNormals[vertexIndex];
+					normal.NormalizeSafe();
+					const aiVector3D& texcoord = mesh->mTextureCoords[0][vertexIndex];
+
+					VertexData vertex{};
+					// 座標と法線のX反転はここで一度だけ行う
+					vertex.position = { -position.x, position.y, position.z, 1.0f };
+					vertex.normal = { -normal.x, normal.y, normal.z };
+					vertex.texcoord = { texcoord.x, texcoord.y };
+					modelData.vertices.push_back(vertex);
+				}
+			}
+		}
+
+		for (unsigned int childIndex = 0; childIndex < node->mNumChildren; ++childIndex) {
+			if (!AppendNodeMeshes(scene, node->mChildren[childIndex], nodeMatrix, rootDeterminant,
+				false, directoryPath, modelData)) {
+				return false;
+			}
+		}
+		return true;
 	}
 
 } // namespace
 
 MaterialData LoadMaterialTemplateFile(const std::string& directoryPath, const std::string& filename) {
 	MaterialData materialData{};
-
-	// material template libraryを開く
-	const std::string filePath = JoinPath(directoryPath, filename);
-	std::ifstream file(filePath);
-	assert(file.is_open());
-
-	if (!file.is_open()) {
-		return materialData;
-	}
-
+	std::ifstream file(JoinPath(directoryPath, filename));
 	std::string line;
 	while (std::getline(file, line)) {
 		std::istringstream lineStream(line);
 		std::string identifier;
 		lineStream >> identifier;
-
 		if (identifier == "map_Kd") {
 			std::string textureFilename;
 			lineStream >> textureFilename;
-
-			// TextureはMaterialと同じフォルダから探す
 			materialData.textureFilePath = JoinPath(directoryPath, textureFilename);
 		}
 	}
-
 	return materialData;
 }
 
-ModelData LoadObjFile(const std::string& directoryPath, const std::string& filename) {
-	ModelData modelData{};
-	std::vector<Vector4> positions;
-	std::vector<Vector2> texcoords;
-	std::vector<Vector3> normals;
+Node ReadNode(const aiNode* node) {
+	Node result;
+	if (node == nullptr) {
+		return result;
+	}
+	result.name = node->mName.C_Str();
+	result.localMatrix = ConvertNodeMatrix(node->mTransformation);
+	result.children.reserve(node->mNumChildren);
+	for (unsigned int index = 0; index < node->mNumChildren; ++index) {
+		result.children.push_back(ReadNode(node->mChildren[index]));
+	}
+	return result;
+}
 
-	// OBJファイルを開く
+ModelData LoadModelFile(const std::string& directoryPath, const std::string& filename) {
+	Assimp::Importer importer;
 	const std::string filePath = JoinPath(directoryPath, filename);
-	std::ifstream file(filePath);
-	assert(file.is_open());
-
-	if (!file.is_open()) {
-		return modelData;
+	// UVと面の向きはAssimpで変換し、X軸の変換は頂点を取り出す時に行う
+	const aiScene* scene = importer.ReadFile(filePath,
+		aiProcess_Triangulate | aiProcess_GenNormals | aiProcess_FlipUVs | aiProcess_FlipWindingOrder);
+	if (scene == nullptr || scene->mRootNode == nullptr || !scene->HasMeshes()) {
+		Log(std::format("Failed to load model: {} ({})\n", filePath, importer.GetErrorString()));
+		return {};
 	}
 
-	std::string line;
-	while (std::getline(file, line)) {
-		std::istringstream lineStream(line);
-		std::string identifier;
-		lineStream >> identifier;
-
-		if (identifier == "v") {
-			Vector4 position{};
-			lineStream >> position.x >> position.y >> position.z;
-			position.w = 1.0f;
-			positions.push_back(position);
-		} else if (identifier == "vt") {
-			Vector2 texcoord{};
-			lineStream >> texcoord.x >> texcoord.y;
-
-			// OBJは左下原点なので、DirectXで扱う左上原点へ合わせる
-			texcoord.y = 1.0f - texcoord.y;
-			texcoords.push_back(texcoord);
-		} else if (identifier == "vn") {
-			Vector3 normal{};
-			lineStream >> normal.x >> normal.y >> normal.z;
-			normals.push_back(normal);
-		} else if (identifier == "f") {
-			std::vector<VertexData> faceVertices;
-			std::string faceVertex;
-
-			// Faceの各頂点を position / texcoord / normal として読む
-			while (lineStream >> faceVertex) {
-				const VertexIndexData indexData = ParseFaceVertex(faceVertex);
-				faceVertices.push_back(MakeVertexData(indexData, positions, texcoords, normals));
-			}
-
-			if (faceVertices.size() < 3) {
-				continue;
-			}
-
-			// 左手座標系にしたので、三角形の表裏が合うように逆順で積む
-			for (size_t index = 1; index + 1 < faceVertices.size(); ++index) {
-				modelData.vertices.push_back(faceVertices[index + 1]);
-				modelData.vertices.push_back(faceVertices[index]);
-				modelData.vertices.push_back(faceVertices[0]);
-			}
-		} else if (identifier == "mtllib") {
-			std::string materialFilename;
-			lineStream >> materialFilename;
-			modelData.material = LoadMaterialTemplateFile(directoryPath, materialFilename);
-		}
+	const float rootDeterminant = aiMatrix3x3(scene->mRootNode->mTransformation).Determinant();
+	if (std::abs(rootDeterminant) < 1.0e-8f) {
+		Log("Failed to load model root: the scale is zero.\n");
+		return {};
 	}
 
+	ModelData modelData;
+	modelData.rootNode = ReadNode(scene->mRootNode);
+	const std::string modelDirectory = std::filesystem::path(filePath).parent_path().generic_string();
+	if (!AppendNodeMeshes(scene, scene->mRootNode, aiMatrix4x4(), rootDeterminant,
+		true, modelDirectory, modelData)) {
+		return {};
+	}
 	return modelData;
+}
+
+ModelData LoadObjFile(const std::string& directoryPath, const std::string& filename) {
+	return LoadModelFile(directoryPath, filename);
 }
 
 } // namespace Homura

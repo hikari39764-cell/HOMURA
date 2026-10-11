@@ -1,0 +1,36 @@
+CG3 00～04
+
+HOMURA.sln を Visual Studio 2022 の x64 でビルドする。
+Debug / Development / Release のどの構成でも操作画面を使える。
+実行時の作業ディレクトリはプロジェクトのルートにする。
+初回ビルドでは CMake とネット接続を使い、固定バージョンの Assimp を復元する。
+
+操作
+  1 : 00_01～02  6種類のBlendModeとMaterialのAlpha
+  2 : 00_03     fenceのAlphaCutoff（透明部分はDepthを書かない）
+  3 : 01_00     10枚の面を1回のDrawInstancedで描画
+  4 : 01_01～04 粒子の寿命、Billboard、Emitter、AABB加速度場
+  5 : 02_00～02 Phong / Blinn Phong、Shininess、非均一Scale
+  6 : 03_00     PointLightの位置、Radius、Decay
+  7 : 03_01     SpotLightの方向、距離と角度の減衰
+  8 : 04_00～01 AssimpでOBJとglTFを並べて描画
+  F1 : DebugCamera切り替え
+  DebugCamera : 右ドラッグで視点、WASD/QEで移動、ZCでロール、Rでリセット
+
+左のChapterでも切り替えできる。Reset chapterで初期値へ戻す。
+粒子のAcceleration fieldを有効にすると、Field min/maxの範囲内だけ加速する。
+LightのIntensityを0にするとそのLightを消せる。
+glTFは子ノードを頂点へ反映し、根ノードの行列は描画時に1回だけ適用する。
+現在のモデル描画は外部カラーテクスチャ1枚を持つOBJ/glTFを対象とする。
+
+検証
+  ./run-cg3-validation.ps1 -Configuration Debug -Build
+  ConfigurationにはDevelopmentとReleaseも指定できる。
+  結果とGPUのReadback画像はTEMP/homura-cg3-validation/<構成名>へ出力する。
+
+素材
+  Resources/CG3/circle.png、fence/ はCG3の配布素材。
+  Resources/CG3/white.png はライティング確認用の白い1px画像。
+  Resources/CG3/plane.gltf とplane.binは、根の回転・子の移動を確認する自作モデル。
+  generate_plane.ps1で同じモデルを再生成できる。
+  Assimpのバージョン・ライセンス・復元処理はexternals/assimp/に記載。

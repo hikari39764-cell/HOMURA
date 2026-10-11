@@ -1,15 +1,14 @@
 #pragma once
 
-#include <Windows.h>
-#include <d3d12.h>
-#include <wrl.h>
+#include <array>
+#include <chrono>
 
 #include "Camera/DefaultCamera.h"
 #include "DebugTools/DebugCamera.h"
 #include "DebugTools/Gui/DebugGui.h"
 #include "Graphics/D3D12Context.h"
-#include "Model/ModelData.h"
 #include "Renderer/Object3dRenderer.h"
+#include "Renderer/ParticleRenderer.h"
 
 namespace Homura {
 
@@ -17,39 +16,56 @@ class Input;
 class WinApp;
 
 /// <summary>
-/// 1フレームの描画全体を管理する
+/// 1フレームの描画と、各章の表示切り替えを管理する
 /// </summary>
 class FrameRenderer {
 public:
+	enum class DemoScene { Blend, AlphaTest, Instancing, Particle, Specular, Point, Spot, Model, Count };
 	bool Initialize(WinApp* winApp);
 	void Finalize();
-
 	void Update(const Input& input);
 	bool Draw();
+	void SetDemoScene(DemoScene scene);
+	DemoScene GetDemoScene() const;
 
 private:
-	bool CreateObject3dRenderer();
+	bool CreateRenderers();
 	bool CreateDebugGui(HWND hwnd);
 	void DrawDebugGui();
+	void DrawObjects();
 	const ICamera& GetActiveCamera() const;
 
-private:
+	// ImGui、インスタンス、Textureが同じSRVを上書きしないように分ける
 	static constexpr UINT kImGuiSRVIndex = 0;
 	static constexpr UINT kModelTextureSRVIndex = 1;
-	static constexpr int kBackBufferCount = 2;
-	static constexpr DXGI_FORMAT kBackBufferFormat = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+	static constexpr UINT kParticleInstanceSRVIndex = 2;
+	static constexpr UINT kParticleTextureSRVIndex = 3;
+	static constexpr UINT kObjectTextureSRVIndex = 4;
+	static constexpr size_t kObjectCount = 6;
+	static constexpr size_t kBackground = 0;
+	static constexpr size_t kBlendPlane = 1;
+	static constexpr size_t kFence = 2;
+	static constexpr size_t kSphere = 3;
+	static constexpr size_t kObj = 4;
+	static constexpr size_t kGltf = 5;
 
-private:
 	D3D12Context d3d12Context_;
 	DebugGui debugGui_;
-	Object3dRenderer object3dRenderer_;
-
-	ModelData modelData_;
-	Microsoft::WRL::ComPtr<ID3D12Resource> modelIntermediateResource_;
-
+	std::array<Object3dRenderer, kObjectCount> objects_;
+	std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, kObjectCount> intermediateResources_;
+	ParticleRenderer particles_;
+	TextureManager particleTexture_;
+	TextureManager checkerTexture_;
+	Microsoft::WRL::ComPtr<ID3D12Resource> particleIntermediate_;
+	Microsoft::WRL::ComPtr<ID3D12Resource> checkerIntermediate_;
 	DefaultCamera defaultCamera_;
 	DebugCamera debugCamera_;
+	DemoScene demoScene_ = DemoScene::Blend;
 	bool useDebugCamera_ = false;
+	bool paused_ = false;
+	bool initialized_ = false;
+	float deltaTime_ = 1.0f / 60.0f;
+	std::chrono::steady_clock::time_point previousFrame_{};
 };
 
 } // namespace Homura

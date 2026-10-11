@@ -374,3 +374,8 @@ imgui.ini
 # DirectXTex generated shader files
 externals/DirectXTex/Shaders/Compiled/
 
+# Assimpは固定バージョンの復元スクリプトから生成する
+/externals/assimp/.cache/
+/externals/assimp/include/
+/externals/assimp/lib/
+

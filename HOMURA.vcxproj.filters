@@ -73,6 +73,9 @@
     <None Include="Shaders\Object3d.hlsli">
       <Filter>Shaders</Filter>
     </None>
+    <None Include="Shaders\Particle.hlsli">
+      <Filter>Shaders</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="App\main.cpp">
@@ -108,7 +111,13 @@
     <ClCompile Include="Model\ModelLoader.cpp">
       <Filter>Model</Filter>
     </ClCompile>
+    <ClCompile Include="Model\Primitive.cpp">
+      <Filter>Model</Filter>
+    </ClCompile>
     <ClCompile Include="Renderer\Object3dRenderer.cpp">
+      <Filter>Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="Renderer\ParticleRenderer.cpp">
       <Filter>Renderer</Filter>
     </ClCompile>
     <ClCompile Include="Renderer\FrameRenderer.cpp">
@@ -188,6 +197,9 @@
     <ClInclude Include="Graphics\D3D12Context.h">
       <Filter>Graphics</Filter>
     </ClInclude>
+    <ClInclude Include="Graphics\BlendMode.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
     <ClInclude Include="DebugTools\CrashHandler\CrashHandler.h">
       <Filter>Debug\CrashHandler</Filter>
     </ClInclude>
@@ -215,7 +227,13 @@
     <ClInclude Include="Model\ModelLoader.h">
       <Filter>Model</Filter>
     </ClInclude>
+    <ClInclude Include="Model\Primitive.h">
+      <Filter>Model</Filter>
+    </ClInclude>
     <ClInclude Include="Renderer\Object3dRenderer.h">
+      <Filter>Renderer</Filter>
+    </ClInclude>
+    <ClInclude Include="Renderer\ParticleRenderer.h">
       <Filter>Renderer</Filter>
     </ClInclude>
     <ClInclude Include="Renderer\FrameRenderer.h">
@@ -259,6 +277,12 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
+    <FxCompile Include="Shaders\Particle.VS.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Shaders\Particle.PS.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
     <FxCompile Include="Shaders\Object3d.VS.hlsl">
       <Filter>Shaders</Filter>
     </FxCompile>
